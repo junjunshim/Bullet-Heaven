@@ -1,0 +1,43 @@
+# Microsoft Visual Studio 및 C++ 프로젝트를 위한 .gitignore 파일
+
+# 사용자 개인 설정 파일 (공유 불필요)
+# ==================================
+*.suo
+*.user
+*.vcxproj.user
+*.sln.docstates
+
+# Visual Studio 2017 이상에서 사용하는 숨김 폴더
+.vs/
+
+# 빌드 결과물 (소스 코드로 언제든 재생성 가능)
+# ============================================
+Debug/
+Release/
+x64/
+Win32/
+build/
+bin/
+obj/
+
+# 개별 빌드 산출물 및 임시 파일
+# ==================================
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.ipch
+*.pch
+*.tlog
+*.log
+*.bak
+*.tmp
+
+# 기타
+# ==================================
+*.aps
+*.ncb
+*.opendb
+*.sdf
