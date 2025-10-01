@@ -1,4 +1,4 @@
-# 🚀 [프로젝트 이름 입력, 예: Arena Survivor]
+# 🚀 [Bullet-Heaven]
 
 
 **C++와 Win32 API만을 사용하여 처음부터 직접 만든 2D 탑다운 서바이벌 아케이드 게임입니다.**
