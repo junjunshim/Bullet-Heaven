@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
+#include <vector>
 #include "Player.h"
 #include "myCommand.h"
 
@@ -137,7 +138,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 // 오프젝트 생성
 Player user;
-Player tang;
+std::vector<Player> tangs;
 Player food;
 
 // 전체 사용 맵
@@ -170,6 +171,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_CREATE:
     {
+        srand(time(NULL));
         // 1. 유저
         //user.setWidth(100);
         //user.setHeight(100);
@@ -179,15 +181,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         // 2. 상대 좌표
         //tang.setWidth(100);
         //tang.setHeight(100);
-        tang.setSpeed(3);
-        tang.setObj(500, 300);
+        for (int i = 0; i < STARTENEMY; i++) {
+            Player newTang;
+            RECT result;
+            do {
+                newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top); 
+            } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+            tangs.push_back(newTang);
+        }
         
         // 3. 타이머 (60 fps => 1000 / 60 = 약 16)
         SetTimer(hWnd, FRAME_60FPS, 16, NULL);
         SetTimer(hWnd, ONE_SECOND, 1000, NULL);
         
         // 4, 음식
-        srand(time(NULL));
         food.setWidth(50);
         food.setHeight(50);
         food.setObj(rand() % (map.right - food.getWidth() - map.left) + map.left, rand() % (map.bottom - food.getHeight() - map.top) + map.top);
@@ -238,29 +245,53 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 }
             }
             */
-            // tang에서 user를 향하는 방향 벡터 계산
-            float dirX = user.getLeft() - tang.getLeft();
-            float dirY = user.getTop() - tang.getTop();
+            //tang들 간의 충돌 검사
+            for (int i = 0; i < tangs.size(); i++) {
+                for (int j = i + 1; j < tangs.size(); j++) {
+                    RECT ret;
+                    if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
+                        float dirX = tangs[j].getLeft() - tangs[i].getLeft();
+                        float dirY = tangs[j].getTop() - tangs[i].getTop();
 
-            // 벡터의 크기(거리) 계산
-            float distance = sqrt(dirX * dirX + dirY * dirY);
+                        float distance = sqrt(dirX * dirX + dirY * dirY);
+                        if (distance != 0) {
+                            dirX /= distance;
+                            dirY /= distance;
+                        }
 
-            // 정규화를 통해서 백터 방향만 구하기
-            // 거리가 0일 때 0으로 나누는 것을 방지
-            if (distance != 0) {
-                dirX = dirX / distance;
-                dirY = dirY / distance;
+                        tangs[i].applyForce(-dirX * 2, -dirY * 2);
+                        tangs[j].applyForce(dirX * 2, dirY * 2);
+
+                        tangs[i].update(map);
+                        tangs[j].update(map);
+                    }
+                }
             }
 
-            // tang에게 정규화된 방향으로 힘을 가함
-            float baseTangForce = 0.2f; // tang의 기본 추격 가속도
-            float forcePerScore = 0.05f; // 점수 25점당 증가할 가속도
-            float tangForce = baseTangForce + ((score / 25) * forcePerScore);
-            tang.applyForce(dirX * tangForce, dirY * tangForce);
+            for (int i = 0; i < tangs.size(); i++) {
+                // tangs[i]에서 user를 향하는 방향 벡터 계산
+                float dirX = user.getLeft() - tangs[i].getLeft();
+                float dirY = user.getTop() - tangs[i].getTop();
 
-            // tang의 물리 상태 업데이트
-            tang.update(map);
+                // 벡터의 크기(거리) 계산
+                float distance = sqrt(dirX * dirX + dirY * dirY);
 
+                // 정규화를 통해서 백터 방향만 구하기
+                // 거리가 0일 때 0으로 나누는 것을 방지
+                if (distance != 0) {
+                    dirX /= distance;
+                    dirY /= distance;
+                }
+
+                // tang에게 정규화된 방향으로 힘을 가함
+                float baseTangForce = 0.2f; // tang의 기본 추격 가속도
+                float forcePerScore = 0.05f; // 점수 25점당 증가할 가속도
+                float tangForce = baseTangForce + ((score / 25) * forcePerScore);
+                tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
+
+                // tang의 물리 상태 업데이트
+                tangs[i].update(map);
+            }
 
             // user 와 food의 충돌 확인 및 food 위치 재배치
             // score 증가 및 tang의 속도 증가(score에 의해 변동)
@@ -277,14 +308,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 */
             }
 
-            // user 와 tang의 충돌 확인 및 타이머 해제
-            RECT ret_tang;
-            if (IntersectRect(&ret_tang, user.getObj(), tang.getObj())) {
-                KillTimer(hWnd, FRAME_60FPS);
-                KillTimer(hWnd, ONE_SECOND);
-                MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
+            for (int i = 0; i < tangs.size(); i++) {
+                // user 와 tang의 충돌 확인 및 타이머 해제
+                RECT ret_tang;
+                if (IntersectRect(&ret_tang, user.getObj(), tangs[i].getObj())) {
+                    KillTimer(hWnd, FRAME_60FPS);
+                    KillTimer(hWnd, ONE_SECOND);
+                    MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
+                }
             }
-
             // 화면 재구성()
             InvalidateRect(hWnd, NULL, FALSE);
 
@@ -436,12 +468,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             Rectangle(hMemDC, map.left, map.top, map.right, map.bottom);
             Rectangle(hMemDC, user.getLeft(), user.getTop(), user.getRight(), user.getBottom());
-            Ellipse(hMemDC, tang.getLeft(), tang.getTop(), tang.getRight(), tang.getBottom());
+            for (int i = 0; i < tangs.size(); i++) {
+                Ellipse(hMemDC, tangs[i].getLeft(), tangs[i].getTop(), tangs[i].getRight(), tangs[i].getBottom());
+            }
             Ellipse(hMemDC, food.getLeft(), food.getTop(), food.getRight(), food.getBottom());
             TextOut(hMemDC, map.right + 10, map.top + 10, timerText, lstrlenW(timerText));
             TextOut(hMemDC, map.right + 10, map.top + 30, scoreText, lstrlenW(scoreText));
             TextOut(hMemDC, map.right + 10, map.top + 50, dashText, lstrlenW(dashText));
-            
+                
             // 백버퍼에 그려진 내용을 hdc로 복사
             BitBlt(hdc, 0, 0, rect.right, rect.bottom, hMemDC, 0, 0, SRCCOPY);
 
