@@ -29,6 +29,8 @@ private:
 	float moveForce;
 	float friction;
 	float dashForce;
+
+	bool isHold;
 public:
 	Player();
 	
@@ -87,5 +89,10 @@ public:
 	// moveForce setter, getter
 	void setMoveForce(float);
 	float getMoveForce();
+
+	// 마우스 처리용
+	bool getIsHold();
+	void TrueIsHold();
+	void FalseIsHold();
 };
 

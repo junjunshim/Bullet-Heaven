@@ -5,4 +5,4 @@
 #define ONE_SECOND 2
 
 // startTangNumber
-#define STARTENEMY 2
+#define STARTENEMY 1

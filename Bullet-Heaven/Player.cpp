@@ -18,6 +18,9 @@ Player::Player() {
 	moveForce = 0.5f;
 	friction = 0.95f;
 	dashForce = 10.0f;
+
+	// 마우스 처리용
+	isHold = false;
 }
 
 // RECT 포인터 반환
@@ -244,3 +247,15 @@ float Player::getMoveForce() {
 	return this->moveForce;
 }
 
+// 마우스 처리용
+bool Player::getIsHold() {
+	return this->isHold;
+}
+
+void Player::TrueIsHold() {
+	this->isHold = true;
+}
+
+void Player::FalseIsHold() {
+	this->isHold = false;
+}

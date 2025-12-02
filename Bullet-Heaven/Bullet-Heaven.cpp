@@ -155,7 +155,7 @@ int gameTime = 0;
 
 // 스코어 및 기본 점수
 int score = 0;
-int point = 5;
+int point = 25;
 
 //물리엔지 적용 전 tang 속도 조절
 int tangMoveCount = 0;
@@ -164,6 +164,10 @@ int tangSpeedDelay = 5;
 // 대쉬용 변수
 int dashCoolTime = 20;
 int dashCount = 0;
+
+// 마우스 위치
+int g_x = 0;
+int g_y = 0;
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -177,7 +181,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         //user.setHeight(100);
         user.setSpeed(5);
         user.setObj(10, 10);
-        
+
         // 2. 상대 좌표
         //tang.setWidth(100);
         //tang.setHeight(100);
@@ -185,15 +189,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             Player newTang;
             RECT result;
             do {
-                newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top); 
+                newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
             } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
             tangs.push_back(newTang);
         }
-        
+
         // 3. 타이머 (60 fps => 1000 / 60 = 약 16)
         SetTimer(hWnd, FRAME_60FPS, 16, NULL);
         SetTimer(hWnd, ONE_SECOND, 1000, NULL);
-        
+
         // 4, 음식
         food.setWidth(50);
         food.setHeight(50);
@@ -205,23 +209,47 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         switch (wParam) {
         case FRAME_60FPS:
         {
-            // user 움직임 처리
+
+            //// user 움직임 처리
+            //if (isLeftPressed) {
+            //    //user.applyForce(-0.5f, 0.0f);
+            //    user.applyForceLeft();
+            //}
+            //if (isRightPressed) {
+            //    //user.applyForce(0.5f, 0.0f);
+            //    user.applyForceRight();
+            //}
+            //if (isUpPressed) {
+            //    //user.applyForce(0.0f, -0.5f);
+            //    user.applyForceTop();
+            //}
+            //if (isDownPressed) {
+            //    //user.applyForce(0.0f, 0.5f);
+            //    user.applyForceBottom();
+            //}
+
+            float m_x = 0.0f;
+            float m_y = 0.0f;
             if (isLeftPressed) {
-                //user.applyForce(-0.5f, 0.0f);
-                user.applyForceLeft();
+                m_x -= 1;
             }
             if (isRightPressed) {
-                //user.applyForce(0.5f, 0.0f);
-                user.applyForceRight();
+                m_x += 1;
             }
-            if (isUpPressed) {
-                //user.applyForce(0.0f, -0.5f);
-                user.applyForceTop();
+            if (isUpPressed){
+                m_y -= 1;
             }
             if (isDownPressed) {
-                //user.applyForce(0.0f, 0.5f);
-                user.applyForceBottom();
+                m_y += 1;
             }
+
+            float distance = sqrt(m_x * m_x + m_y * m_y);
+            if (distance != 0) {
+                m_x /= distance;
+                m_y /= distance;
+            }
+
+            user.applyForce(m_x * 0.5f, m_y * 0.5f);
 
             user.update(map);
 
@@ -247,7 +275,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             */
             //tang들 간의 충돌 검사
             for (int i = 0; i < tangs.size(); i++) {
+                if (tangs[i].getIsHold()) {
+                    continue;
+                }
                 for (int j = i + 1; j < tangs.size(); j++) {
+                    if (tangs[j].getIsHold()) {
+                        continue;
+                    }
                     RECT ret;
                     if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
                         float dirX = tangs[j].getLeft() - tangs[i].getLeft();
@@ -269,6 +303,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
 
             for (int i = 0; i < tangs.size(); i++) {
+                if (tangs[i].getIsHold()) {
+                    continue;
+                }
                 // tangs[i]에서 user를 향하는 방향 벡터 계산
                 float dirX = user.getLeft() - tangs[i].getLeft();
                 float dirY = user.getTop() - tangs[i].getTop();
@@ -293,12 +330,47 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 tangs[i].update(map);
             }
 
+            // tang가 isHold == true일때, 마우스를 따라가도록(tang들 간의 충돌은 무시)
+            for (int i = 0; i < tangs.size(); i++) {
+                if (!tangs[i].getIsHold()) {
+                    continue;
+                }
+                //tang 중앙으로 위치 보정
+                float dirX = g_x - (tangs[i].getLeft() + tangs[i].getWidth() / 2);
+                float dirY = g_y - (tangs[i].getTop() + tangs[i].getHeight() / 2);
+
+                // 벡터의 크기 계산
+                float distance = sqrt(dirX * dirX + dirY * dirY);
+
+                // 벡터 정규화 and 거리 0일때 제외
+                if (distance != 0) {
+                    dirX /= distance;
+                    dirY /= distance;
+                }
+
+                // tang에게 정규화된 방향으로 힘을 가함
+                float holdTangForce = 1.0f; // tang의 hold 시 가속도
+                tangs[i].applyForce(dirX * holdTangForce, dirY * holdTangForce);
+
+                // tang의 물리 상태 업데이트
+                tangs[i].update(map);
+            }
+
+
             // user 와 food의 충돌 확인 및 food 위치 재배치
             // score 증가 및 tang의 속도 증가(score에 의해 변동)
             RECT ret_food;
             if (IntersectRect(&ret_food, user.getObj(), food.getObj())) {
                 food.setObj(rand() % (map.right - food.getWidth() - map.left) + map.left, rand() % (map.bottom - food.getHeight() - map.top) + map.top);
                 score += point;
+                if (score % 100 == 0) {
+                    Player newTang;
+                    RECT result;
+                    do {
+                        newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
+                    } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+                    tangs.push_back(newTang);
+                }
                 /*
                 int newDelay = 5 - (score / 25);
                 if (newDelay < 1) {
@@ -332,6 +404,42 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         default: 
         {
         }
+        }
+    }
+    break;
+    case WM_LBUTTONDOWN:
+    {
+        int x = LOWORD(lParam);
+        int y = HIWORD(lParam);
+        RECT mousePoint = {x, y, x + 1, y + 1};
+        for (int i = 0; i < tangs.size(); i++) {
+            RECT result;
+            if (IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
+                tangs[i].TrueIsHold();
+                break; // 하나의 tang만 잡기 위해 break;
+            }
+        }
+    }
+    break;
+    case WM_LBUTTONUP:
+    {
+        for (int i = 0; i < tangs.size(); i++) {
+            tangs[i].FalseIsHold();
+        }
+    }
+    break;
+    case WM_MOUSEMOVE:
+    {
+        g_x = LOWORD(lParam);
+        g_y = HIWORD(lParam);
+        int x = LOWORD(lParam);
+        int y = HIWORD(lParam);
+        RECT mousePoint = { x,y,x + 1,y + 1 };
+        for (int i = 0; i < tangs.size(); i++) {
+            RECT result;
+            if (!IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
+                tangs[i].FalseIsHold();
+            }
         }
     }
     break;
@@ -433,6 +541,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             HDC hMemDC;
             HBITMAP hBitmap;
             HBITMAP hOldBitmap;
+            HPEN myPen, oldPen;
+            HBRUSH myBrush, oldBrush;
             RECT rect;
 
             // 클라이언트 영역 얻어오기
@@ -469,18 +579,47 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             Rectangle(hMemDC, map.left, map.top, map.right, map.bottom);
             Rectangle(hMemDC, user.getLeft(), user.getTop(), user.getRight(), user.getBottom());
             for (int i = 0; i < tangs.size(); i++) {
-                Ellipse(hMemDC, tangs[i].getLeft(), tangs[i].getTop(), tangs[i].getRight(), tangs[i].getBottom());
+                if (!tangs[i].getIsHold()) {
+                    Ellipse(hMemDC, tangs[i].getLeft(), tangs[i].getTop(), tangs[i].getRight(), tangs[i].getBottom());
+                }
+                else {
+                    myBrush = CreateSolidBrush(RGB(0, 20, 150));
+                    oldBrush = (HBRUSH)SelectObject(hMemDC, myBrush);
+                    Ellipse(hMemDC, tangs[i].getLeft(), tangs[i].getTop(), tangs[i].getRight(), tangs[i].getBottom());
+                    myBrush = (HBRUSH)SelectObject(hMemDC, oldBrush);
+                }
             }
             Ellipse(hMemDC, food.getLeft(), food.getTop(), food.getRight(), food.getBottom());
             TextOut(hMemDC, map.right + 10, map.top + 10, timerText, lstrlenW(timerText));
             TextOut(hMemDC, map.right + 10, map.top + 30, scoreText, lstrlenW(scoreText));
             TextOut(hMemDC, map.right + 10, map.top + 50, dashText, lstrlenW(dashText));
+            
+            Rectangle(hMemDC, map.left, map.bottom, map.right, map.bottom + 10);
+            myPen = CreatePen(PS_NULL, NULL, NULL);
+            oldPen = (HPEN)SelectObject(hMemDC, myPen);
+            myBrush = CreateSolidBrush(RGB(255, 0, 0));
+            oldBrush = (HBRUSH)SelectObject(hMemDC, myBrush);
+            int enemyGauge = map.left;
+            enemyGauge += (score % 100 / 20) * (map.right - map.left) / 5;
+            Rectangle(hMemDC, map.left, map.bottom, enemyGauge, map.bottom + 10);
+
+            SelectObject(hMemDC, oldPen);
+            SelectObject(hMemDC, oldBrush);
+
+            for (int i = 1; i <= 4; i++) {
+                int gaugeGap = (map.right - map.left) / 5;
+                MoveToEx(hMemDC, map.left + gaugeGap * i, map.bottom, NULL);
+                LineTo(hMemDC, map.left + gaugeGap * i, map.bottom + 10);
+            }
+            
                 
             // 백버퍼에 그려진 내용을 hdc로 복사
             BitBlt(hdc, 0, 0, rect.right, rect.bottom, hMemDC, 0, 0, SRCCOPY);
 
             // 리소스 해제
             SelectObject(hMemDC, hOldBitmap);
+            DeleteObject(myPen);
+            DeleteObject(myBrush);
             DeleteObject(hBitmap);
             DeleteObject(hMemDC);
 
@@ -490,6 +629,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     case WM_DESTROY:
         //DestroyWindow(g_button);
+        tangs.clear();
         PostQuitMessage(0);
         break;
     default:
