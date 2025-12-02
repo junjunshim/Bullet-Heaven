@@ -5,7 +5,6 @@
 /// <summary>
 /// Player 클래스
 /// obj => 객체 상하좌우 좌표 저장
-/// speed => 물리엔진 적용 전 객체 이동속도
 /// width => 객체 너비
 /// height => 객체 높이
 /// x, y => 물리엔진 계산에 사용될 실제 좌표
@@ -19,7 +18,6 @@ class Player
 {
 private:
 	RECT obj;
-	int speed;
 	int width;
 	int height;
 
@@ -59,21 +57,6 @@ public:
 	int getTop();
 	int getRight();
 	int getBottom();
-
-	// 좌표 이동
-	void moveLeft();
-	void moveTop();
-	void moveRight();
-	void moveBottom();
-
-	//좌표 이동(이동 제약)
-	void moveLeft(RECT);
-	void moveTop(RECT);
-	void moveRight(RECT);
-	void moveBottom(RECT);
-
-	// speed setter
-	void setSpeed(int);
 
 	// 물리엔진용 
 	void update(RECT);

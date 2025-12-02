@@ -175,19 +175,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
     case WM_CREATE:
     {
+        // 난수 초기화
         srand(time(NULL));
-        // 1. 유저
-        //user.setWidth(100);
-        //user.setHeight(100);
-        user.setSpeed(5);
-        user.setObj(10, 10);
+        // 1. 유저 (default width, heigth => 70)
+        user.setObj(10, 10); // 매개변수로 시작 위치만 지정
 
-        // 2. 상대 좌표
-        //tang.setWidth(100);
-        //tang.setHeight(100);
+        // 2. 적 (default width, heigth => 70)
         for (int i = 0; i < STARTENEMY; i++) {
             Player newTang;
             RECT result;
+            /*
+                랜덤 위치 생성 로직
+                1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
+                2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
+                3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
+            */
             do {
                 newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
             } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
@@ -201,6 +203,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         // 4, 음식
         food.setWidth(50);
         food.setHeight(50);
+        // tagn와 똑같이 랜덤 위치 생성 (추가+ 시작 위치 비교 생성 로직 추가)
         food.setObj(rand() % (map.right - food.getWidth() - map.left) + map.left, rand() % (map.bottom - food.getHeight() - map.top) + map.top);
     }
     break;
@@ -209,25 +212,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         switch (wParam) {
         case FRAME_60FPS:
         {
-
-            //// user 움직임 처리
-            //if (isLeftPressed) {
-            //    //user.applyForce(-0.5f, 0.0f);
-            //    user.applyForceLeft();
-            //}
-            //if (isRightPressed) {
-            //    //user.applyForce(0.5f, 0.0f);
-            //    user.applyForceRight();
-            //}
-            //if (isUpPressed) {
-            //    //user.applyForce(0.0f, -0.5f);
-            //    user.applyForceTop();
-            //}
-            //if (isDownPressed) {
-            //    //user.applyForce(0.0f, 0.5f);
-            //    user.applyForceBottom();
-            //}
-
+            // 유저 위치 이동 로직
             float m_x = 0.0f;
             float m_y = 0.0f;
             if (isLeftPressed) {
@@ -243,6 +228,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 m_y += 1;
             }
 
+            // 대각선 이동 시, 속도 빨라지는 것 방지(정규화)
             float distance = sqrt(m_x * m_x + m_y * m_y);
             if (distance != 0) {
                 m_x /= distance;
@@ -253,60 +239,54 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             user.update(map);
 
-            // tang  움직임 처리
-            /*
-            tangMoveCount++;
-            if (tangMoveCount >= tangSpeedDelay) {
-                tangMoveCount = 0;
-                if(user.getLeft() < tang.getLeft()) {
-                    tang.moveLeft();
-                }
-                else {
-                    tang.moveRight();
-                }
-
-                if (user.getTop() < tang.getTop()) {
-                    tang.moveTop();
-                }
-                else {
-                    tang.moveBottom();
-                }
-            }
-            */
-            //tang들 간의 충돌 검사
+            // tang들 간의 충돌 검사 로직
             for (int i = 0; i < tangs.size(); i++) {
+                // tang의 상태 확인 => 잡힌 상태면, 충돌 검사 X
                 if (tangs[i].getIsHold()) {
                     continue;
                 }
+                // tang의 충돌검사는 인덱스가 큰 tang들만 검사하여 여러 번 검사하는 것을 방지
                 for (int j = i + 1; j < tangs.size(); j++) {
+                    // 비교를 할 tang가 잡힌 상태면 충돌 검사 X
                     if (tangs[j].getIsHold()) {
                         continue;
                     }
+                    
                     RECT ret;
+                    // tang 간의 충돌 비교(IntersectRect() 함수 사용)
                     if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
+                        // 충돌 시, 어느 방향으로 튕겨나가야 할지 계산
+                        // ex) dirX = a.left - b.left => dirX는 a의 x축 방향 벡터 값★★★★ 
                         float dirX = tangs[j].getLeft() - tangs[i].getLeft();
                         float dirY = tangs[j].getTop() - tangs[i].getTop();
 
+                        // 계산한 방향 벡터를 정규화
                         float distance = sqrt(dirX * dirX + dirY * dirY);
                         if (distance != 0) {
                             dirX /= distance;
                             dirY /= distance;
                         }
 
+                        // 각 tang에 가속도에 방향 벡터 값 추가 
                         tangs[i].applyForce(-dirX * 2, -dirY * 2);
                         tangs[j].applyForce(dirX * 2, dirY * 2);
 
+                        // tang의 물리 상태 업데이트
                         tangs[i].update(map);
                         tangs[j].update(map);
                     }
                 }
             }
 
+            // tang의 user 추적 로직
             for (int i = 0; i < tangs.size(); i++) {
+                // tang가 잡힌 상태면, X
                 if (tangs[i].getIsHold()) {
                     continue;
                 }
+
                 // tangs[i]에서 user를 향하는 방향 벡터 계산
+                // ex) dirX = a.left - b.left => dirX는 a의 x축 방향 벡터 값★★★★
                 float dirX = user.getLeft() - tangs[i].getLeft();
                 float dirY = user.getTop() - tangs[i].getTop();
 
@@ -322,7 +302,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
                 // tang에게 정규화된 방향으로 힘을 가함
                 float baseTangForce = 0.2f; // tang의 기본 추격 가속도
-                float forcePerScore = 0.05f; // 점수 25점당 증가할 가속도
+                float forcePerScore = 0.02f; // 점수 25점당 증가할 가속도
                 float tangForce = baseTangForce + ((score / 25) * forcePerScore);
                 tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
 
@@ -336,6 +316,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     continue;
                 }
                 //tang 중앙으로 위치 보정
+                // g_x, g_y => 마우스 위치
+                // tang의 중앙 위치 값 구한 뒤, 방향 벡터 구하기
                 float dirX = g_x - (tangs[i].getLeft() + tangs[i].getWidth() / 2);
                 float dirY = g_y - (tangs[i].getTop() + tangs[i].getHeight() / 2);
 
@@ -359,27 +341,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             // user 와 food의 충돌 확인 및 food 위치 재배치
             // score 증가 및 tang의 속도 증가(score에 의해 변동)
+            // score 일정치 이상 증가 시, tang 증가 로직
             RECT ret_food;
             if (IntersectRect(&ret_food, user.getObj(), food.getObj())) {
                 food.setObj(rand() % (map.right - food.getWidth() - map.left) + map.left, rand() % (map.bottom - food.getHeight() - map.top) + map.top);
                 score += point;
+                // 100점마다 tang 증가 로직
                 if (score % 100 == 0) {
                     Player newTang;
                     RECT result;
+                    /*
+                        랜덤 위치 생성 로직
+                        1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
+                        2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
+                        3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
+                    */
                     do {
                         newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
                     } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
                     tangs.push_back(newTang);
                 }
-                /*
-                int newDelay = 5 - (score / 25);
-                if (newDelay < 1) {
-                    newDelay = 1;
-                }
-                tangSpeedDelay = newDelay;
-                */
             }
 
+            // user와 tang들 충돌 검사 ()
             for (int i = 0; i < tangs.size(); i++) {
                 // user 와 tang의 충돌 확인 및 타이머 해제
                 RECT ret_tang;
@@ -389,13 +373,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
                 }
             }
-            // 화면 재구성()
-            InvalidateRect(hWnd, NULL, FALSE);
 
+            // 모든 로직 수행 후, 화면 재구성()
+            InvalidateRect(hWnd, NULL, FALSE);
         }
         break;
         case ONE_SECOND:
         {
+            // 타이머 증가 로직 + 대수 쿨타임 계산
             gameTime++;
             if (dashCount > 0) {
                 dashCount--;
@@ -408,15 +393,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     }
     break;
     case WM_LBUTTONDOWN:
-    {
+    {   
+        // 마우스 왼쪽 클릭 시) tang가 잡혔는 지 확인
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
-        RECT mousePoint = {x, y, x + 1, y + 1};
+        RECT mousePoint = { x, y, x + 1, y + 1 };
         for (int i = 0; i < tangs.size(); i++) {
             RECT result;
             if (IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
+                // tang의 isHold 상태 변경
                 tangs[i].TrueIsHold();
-                break; // 하나의 tang만 잡기 위해 break;
+                break; // 하나의 tang만 잡기 위해 break ★★★★★
             }
         }
     }
@@ -430,14 +417,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
     case WM_MOUSEMOVE:
     {
+        // 마우스 포인터 위치 저장
         g_x = LOWORD(lParam);
         g_y = HIWORD(lParam);
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
-        RECT mousePoint = { x,y,x + 1,y + 1 };
+        // 마우스가 움직여서 tang를 놓쳤는 지 확인
+        RECT mousePoint = { x, y, x + 1, y + 1 };
         for (int i = 0; i < tangs.size(); i++) {
             RECT result;
             if (!IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
+                // tang의 isHold 상태 변경
                 tangs[i].FalseIsHold();
             }
         }
@@ -446,6 +436,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_KEYDOWN:
     {
         switch (wParam) {
+            // 유저가 어떤 방향 키를 입력하는 지, 확인
             case VK_LEFT:
             {
                 isLeftPressed = true;
@@ -466,6 +457,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 isDownPressed = true;
             }
             break;
+            // 스페이스 입력 시, 대쉬 스킬이 나가도록 설정(dashCount 0일때만, 적용)
             case VK_SPACE:
             {
                 if (dashCount == 0) {

@@ -3,7 +3,6 @@
 
 Player::Player() {
 	obj = { 0, };
-	speed = 1;
 	width = 70;
 	height = 70;
 
@@ -87,70 +86,6 @@ int Player::getRight() {
 
 int Player::getBottom() {
 	return this->obj.bottom;
-}
-
-// obj 좌표 이동(speed에 의한)
-void Player::moveLeft() {
-	this->obj.left -= this->speed;
-	this->obj.right -= this->speed;
-}
-
-void Player::moveRight() {
-	this->obj.left += this->speed;
-	this->obj.right += this->speed;
-}
-
-void Player::moveTop() {
-	this->obj.top -= this->speed;
-	this->obj.bottom -= this->speed;
-}
-
-void Player::moveBottom() {
-	this->obj.top += this->speed;
-	this->obj.bottom += this->speed;
-}
-
-// 이동 제약이 있음
-// obj 좌표 이동(speed에 의한)
-void Player::moveLeft(RECT map) {
-	this->obj.left -= this->speed;
-	this->obj.right -= this->speed;
-	if (this->obj.left < map.left) {
-		this->obj.left = map.left;
-		this->obj.right = this->obj.left + this->width;
-	}
-}
-
-void Player::moveRight(RECT map) {
-	this->obj.left += this->speed;
-	this->obj.right += this->speed;
-	if (this->obj.right > map.right) {
-		this->obj.right = map.right;
-		this->obj.left = this->obj.right - this->width;
-	}
-}
-
-void Player::moveTop(RECT map) {
-	this->obj.top -= this->speed;
-	this->obj.bottom -= this->speed;
-	if (this->obj.top < map.top) {
-		this->obj.top = map.top;
-		this->obj.bottom = this->obj.top + this->height;
-	}
-}
-
-void Player::moveBottom(RECT map) {
-	this->obj.top += this->speed;
-	this->obj.bottom += this->speed;
-	if (this->obj.bottom > map.bottom) {
-		this->obj.bottom = map.bottom;
-		this->obj.top = this->obj.bottom - this->height;
-	}
-}
-
-// speed setter
-void Player::setSpeed(int num) {
-	this->speed = num;
 }
 
 // 물리엔진용
