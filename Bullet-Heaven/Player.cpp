@@ -3,8 +3,8 @@
 
 Player::Player() {
 	obj = { 0, };
-	width = 70;
-	height = 70;
+	width = 50;
+	height = 50;
 
 	// 물리엔진용 변수
 	x = 0.0f;
@@ -180,6 +180,14 @@ void Player::setMoveForce(float force) {
 // moveForce getter
 float Player::getMoveForce() {
 	return this->moveForce;
+}
+
+// setter vx, vy
+void Player::setVx(float vx) {
+	this->vx = vx;
+}
+void Player::SetVy(float vy) {
+	this->vy = vy;
 }
 
 // 마우스 처리용

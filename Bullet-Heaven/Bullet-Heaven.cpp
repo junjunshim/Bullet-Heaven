@@ -128,18 +128,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 //
 //
 
-//HWND g_button;
-//
-//#define IDM_BTN_CLICK 999
-//
-//bool point_flag = false;
-
-
-
 // 오프젝트 생성
 Player user;
 std::vector<Player> tangs;
-Player food;
+std::vector<Player> foods;
 
 // 전체 사용 맵
 RECT map = { 10,10,800,800 };
@@ -157,10 +149,6 @@ int gameTime = 0;
 int score = 0;
 int point = 25;
 
-//물리엔지 적용 전 tang 속도 조절
-int tangMoveCount = 0;
-int tangSpeedDelay = 5;
-
 // 대쉬용 변수
 int dashCoolTime = 20;
 int dashCount = 0;
@@ -168,6 +156,9 @@ int dashCount = 0;
 // 마우스 위치
 int g_x = 0;
 int g_y = 0;
+
+// 게임 오버 상태
+bool isGameOver = false;
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -177,7 +168,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         // 난수 초기화
         srand(time(NULL));
-        // 1. 유저 (default width, heigth => 70)
+        // 1. 유저 (default width, heigth => 50)
         user.setObj(10, 10); // 매개변수로 시작 위치만 지정
 
         // 2. 적 (default width, heigth => 70)
@@ -201,10 +192,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         SetTimer(hWnd, ONE_SECOND, 1000, NULL);
 
         // 4, 음식
-        food.setWidth(50);
-        food.setHeight(50);
-        // tagn와 똑같이 랜덤 위치 생성 (추가+ 시작 위치 비교 생성 로직 추가)
-        food.setObj(rand() % (map.right - food.getWidth() - map.left) + map.left, rand() % (map.bottom - food.getHeight() - map.top) + map.top);
+        Player newFood;
+        newFood.setWidth(30);
+        newFood.setHeight(30);
+        // tagn와 똑같이 랜덤 위치 생성, 시작 생성 위치가 유저와 겹치면 다시 생성
+        RECT result;
+        do {
+            newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
+        } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
+        foods.push_back(newFood);
     }
     break;
     case WM_TIMER:
@@ -235,7 +231,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 m_y /= distance;
             }
 
-            user.applyForce(m_x * 0.5f, m_y * 0.5f);
+            user.applyForce(m_x * 0.3f, m_y * 0.3f);
 
             user.update(map);
 
@@ -301,7 +297,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 }
 
                 // tang에게 정규화된 방향으로 힘을 가함
-                float baseTangForce = 0.2f; // tang의 기본 추격 가속도
+                float baseTangForce = 0.1f; // tang의 기본 추격 가속도
                 float forcePerScore = 0.02f; // 점수 25점당 증가할 가속도
                 float tangForce = baseTangForce + ((score / 25) * forcePerScore);
                 tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
@@ -343,23 +339,38 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             // score 증가 및 tang의 속도 증가(score에 의해 변동)
             // score 일정치 이상 증가 시, tang 증가 로직
             RECT ret_food;
-            if (IntersectRect(&ret_food, user.getObj(), food.getObj())) {
-                food.setObj(rand() % (map.right - food.getWidth() - map.left) + map.left, rand() % (map.bottom - food.getHeight() - map.top) + map.top);
-                score += point;
-                // 100점마다 tang 증가 로직
-                if (score % 100 == 0) {
-                    Player newTang;
-                    RECT result;
-                    /*
-                        랜덤 위치 생성 로직
-                        1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
-                        2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
-                        3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
-                    */
+            for (int i = 0; i < foods.size(); i++) {
+                if (IntersectRect(&ret_food, user.getObj(), foods[i].getObj())) {
+                    score += point;
+                    RECT re;
                     do {
-                        newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
-                    } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
-                    tangs.push_back(newTang);
+                        foods[i].setObj(rand() % (map.right - foods[i].getWidth() - map.left) + map.left, rand() % (map.bottom - foods[i].getHeight() - map.top) + map.top);
+                    } while (IntersectRect(&re, user.getObj(), foods[i].getObj()));
+                    // 100점마다 tang 증가 로직 + food 증가 로직
+                    if (score % 100 == 0) {
+                        // tang 증가
+                        Player newTang;
+                        RECT result;
+                        /*
+                            랜덤 위치 생성 로직
+                            1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
+                            2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
+                            3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
+                        */
+                        do {
+                            newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
+                        } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+                        tangs.push_back(newTang);
+
+                        // food 증가
+                        Player newFood;
+                        newFood.setWidth(30);
+                        newFood.setHeight(30);
+                        do {
+                            newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
+                        } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
+                        foods.push_back(newFood);
+                    }
                 }
             }
 
@@ -370,7 +381,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 if (IntersectRect(&ret_tang, user.getObj(), tangs[i].getObj())) {
                     KillTimer(hWnd, FRAME_60FPS);
                     KillTimer(hWnd, ONE_SECOND);
+                    isGameOver = true;
                     MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
+                    isDownPressed = false;
+                    isLeftPressed = false;
+                    isRightPressed = false;
+                    isUpPressed = false;
                 }
             }
 
@@ -467,6 +483,56 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 }
             }
             break;
+            case VK_F1:
+            {
+                if (isGameOver) {
+                    MessageBox(hWnd, L"게임을 다시 시작합니다.", L"Info", MB_OK);
+                    // 기존 tang와 food 들 정리
+                    tangs.clear();
+                    foods.clear();
+                    // 유저 위치 이동
+                    user.setObj(10, 10);
+                    user.setVx(0.0);
+                    user.SetVy(0.0);
+                    // 게임 시간, 대쉬 쿨타임, 스코어 초기화
+                    gameTime = 0;
+                    dashCount = 0;
+                    score = 0;
+
+                    // 적 (default width, heigth => 50)
+                    for (int i = 0; i < STARTENEMY; i++) {
+                        Player newTang;
+                        RECT result;
+                        /*
+                            랜덤 위치 생성 로직
+                            1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
+                            2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
+                            3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
+                        */
+                        do {
+                            newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
+                        } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+                        tangs.push_back(newTang);
+                    }
+
+                    // 4, 음식
+                    Player newFood;
+                    newFood.setWidth(30);
+                    newFood.setHeight(30);
+                    // tang와 똑같이 랜덤 위치 생성, 시작 생성 위치가 유저와 겹치면 다시 생성
+                    RECT result;
+                    do {
+                        newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
+                    } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
+                    foods.push_back(newFood);
+
+                    // 게임 오버 상태 초기화
+                    isGameOver = false;
+                    // 타이머 다시 세팅
+                    SetTimer(hWnd, FRAME_60FPS, 16, NULL);
+                    SetTimer(hWnd, ONE_SECOND, 1000, NULL);
+                }
+            }
             default:
             {
             }
@@ -581,7 +647,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     myBrush = (HBRUSH)SelectObject(hMemDC, oldBrush);
                 }
             }
-            Ellipse(hMemDC, food.getLeft(), food.getTop(), food.getRight(), food.getBottom());
+            for (int i = 0; i < foods.size(); i++) {
+                Ellipse(hMemDC, foods[i].getLeft(), foods[i].getTop(), foods[i].getRight(), foods[i].getBottom());
+            }
             TextOut(hMemDC, map.right + 10, map.top + 10, timerText, lstrlenW(timerText));
             TextOut(hMemDC, map.right + 10, map.top + 30, scoreText, lstrlenW(scoreText));
             TextOut(hMemDC, map.right + 10, map.top + 50, dashText, lstrlenW(dashText));
@@ -604,6 +672,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 LineTo(hMemDC, map.left + gaugeGap * i, map.bottom + 10);
             }
             
+            // isGameOver 시, f1z키 입력 시) 다시 시작 텍스트 표시
+            if (isGameOver) {
+                WCHAR overText[100];
+                wsprintfW(overText, L"F1 입력 시, 다시 시작");
+                TextOut(hMemDC, map.right + 10, map.top + 70, overText, lstrlenW(overText));
+            }
                 
             // 백버퍼에 그려진 내용을 hdc로 복사
             BitBlt(hdc, 0, 0, rect.right, rect.bottom, hMemDC, 0, 0, SRCCOPY);
