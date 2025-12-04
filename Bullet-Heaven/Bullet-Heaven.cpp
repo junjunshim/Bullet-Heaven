@@ -136,6 +136,14 @@ std::vector<Player> foods;
 // 전체 사용 맵
 RECT map = { 10,10,800,800 };
 
+// 게임 시작 버튼 위치
+RECT startButton = {
+    ((map.right - map.left) / 2 - 70),
+    (map.top + 200),
+    ((map.right - map.left) / 2 + 70),
+    (map.top + 200 + 50)
+};
+
 // 키다운 확인
 bool isLeftPressed = false;
 bool isRightPressed = false;
@@ -157,8 +165,11 @@ int dashCount = 0;
 int g_x = 0;
 int g_y = 0;
 
-// 게임 오버 상태
+// 게임 상태 플래그 변수
+bool isMainMenu = true;
+bool isGamePlaying = false;
 bool isGameOver = false;
+
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -168,39 +179,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         // 난수 초기화
         srand(time(NULL));
-        // 1. 유저 (default width, heigth => 50)
-        user.setObj(10, 10); // 매개변수로 시작 위치만 지정
-
-        // 2. 적 (default width, heigth => 70)
-        for (int i = 0; i < STARTENEMY; i++) {
-            Player newTang;
-            RECT result;
-            /*
-                랜덤 위치 생성 로직
-                1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
-                2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
-                3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
-            */
-            do {
-                newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
-            } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
-            tangs.push_back(newTang);
-        }
-
-        // 3. 타이머 (60 fps => 1000 / 60 = 약 16)
-        SetTimer(hWnd, FRAME_60FPS, 16, NULL);
-        SetTimer(hWnd, ONE_SECOND, 1000, NULL);
-
-        // 4, 음식
-        Player newFood;
-        newFood.setWidth(30);
-        newFood.setHeight(30);
-        // tagn와 똑같이 랜덤 위치 생성, 시작 생성 위치가 유저와 겹치면 다시 생성
-        RECT result;
-        do {
-            newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
-        } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
-        foods.push_back(newFood);
     }
     break;
     case WM_TIMER:
@@ -217,7 +195,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (isRightPressed) {
                 m_x += 1;
             }
-            if (isUpPressed){
+            if (isUpPressed) {
                 m_y -= 1;
             }
             if (isDownPressed) {
@@ -231,7 +209,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 m_y /= distance;
             }
 
-            user.applyForce(m_x * 0.3f, m_y * 0.3f);
+            user.applyForce(m_x * 0.5f, m_y * 0.5f);
 
             user.update(map);
 
@@ -247,7 +225,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     if (tangs[j].getIsHold()) {
                         continue;
                     }
-                    
+
                     RECT ret;
                     // tang 간의 충돌 비교(IntersectRect() 함수 사용)
                     if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
@@ -298,8 +276,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
                 // tang에게 정규화된 방향으로 힘을 가함
                 float baseTangForce = 0.1f; // tang의 기본 추격 가속도
-                float forcePerScore = 0.02f; // 점수 25점당 증가할 가속도
-                float tangForce = baseTangForce + ((score / 25) * forcePerScore);
+                float forcePerScore = 0.02f; // 점수 50당 증가할 가속도
+                float tangForce = baseTangForce + ((score / 50) * forcePerScore);
                 tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
 
                 // tang의 물리 상태 업데이트
@@ -387,6 +365,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     isLeftPressed = false;
                     isRightPressed = false;
                     isUpPressed = false;
+                    isMainMenu = true;
+                    isGamePlaying = false;
+                    isGameOver = false;
                 }
             }
 
@@ -402,32 +383,91 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 dashCount--;
             }
         }
-        default: 
+        break;
+        default:
         {
         }
+        break;
         }
     }
     break;
     case WM_LBUTTONDOWN:
-    {   
-        // 마우스 왼쪽 클릭 시) tang가 잡혔는 지 확인
+    {
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
-        RECT mousePoint = { x, y, x + 1, y + 1 };
-        for (int i = 0; i < tangs.size(); i++) {
+        // 게임 상태가 isMainMenu일때
+        if (isMainMenu) {
+            RECT mousePoint = { x, y ,x + 1, y + 1 };
             RECT result;
-            if (IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
-                // tang의 isHold 상태 변경
-                tangs[i].TrueIsHold();
-                break; // 하나의 tang만 잡기 위해 break ★★★★★
+            if (IntersectRect(&result, &startButton, &mousePoint)) {
+                // 게임 시작 버튼 클릭 시,  게임 초기화 위치
+                // 기존 tang와 food 들 정리
+                tangs.clear();
+                foods.clear();
+                // 유저 위치 이동 && 속도 초기화
+                user.setObj(10, 10);
+                user.setVx(0.0);
+                user.SetVy(0.0);
+                // 게임 시간, 대쉬 쿨타임, 스코어 초기화
+                gameTime = 0;
+                dashCount = 0;
+                score = 0;
+
+                // 적 (default width, heigth => 50)
+                for (int i = 0; i < STARTENEMY; i++) {
+                    Player newTang;
+                    RECT result;
+                    /*
+                        랜덤 위치 생성 로직
+                        1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
+                        2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
+                        3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
+                    */
+                    do {
+                        newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
+                    } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+                    tangs.push_back(newTang);
+                }
+
+                // 4, 음식
+                Player newFood;
+                newFood.setWidth(30);
+                newFood.setHeight(30);
+                // tang와 똑같이 랜덤 위치 생성, 시작 생성 위치가 유저와 겹치면 다시 생성
+                RECT result;
+                do {
+                    newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
+                } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
+                foods.push_back(newFood);
+
+                // 게임 상태 초기화
+                isMainMenu = false;
+                isGamePlaying = true;
+                // 타이머 다시 세팅
+                SetTimer(hWnd, FRAME_60FPS, 16, NULL);
+                SetTimer(hWnd, ONE_SECOND, 1000, NULL);
+            }
+        }
+        if (isGamePlaying) {
+            // 마우스 왼쪽 클릭 시) tang가 잡혔는 지 확인
+            RECT mousePoint = { x, y, x + 1, y + 1 };
+            for (int i = 0; i < tangs.size(); i++) {
+                RECT result;
+                if (IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
+                    // tang의 isHold 상태 변경
+                    tangs[i].TrueIsHold();
+                    break; // 하나의 tang만 잡기 위해 break ★★★★★
+                }
             }
         }
     }
     break;
     case WM_LBUTTONUP:
     {
-        for (int i = 0; i < tangs.size(); i++) {
-            tangs[i].FalseIsHold();
+        if (isGamePlaying) {
+            for (int i = 0; i < tangs.size(); i++) {
+                tangs[i].FalseIsHold();
+            }
         }
     }
     break;
@@ -438,13 +478,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         g_y = HIWORD(lParam);
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
-        // 마우스가 움직여서 tang를 놓쳤는 지 확인
-        RECT mousePoint = { x, y, x + 1, y + 1 };
-        for (int i = 0; i < tangs.size(); i++) {
-            RECT result;
-            if (!IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
-                // tang의 isHold 상태 변경
-                tangs[i].FalseIsHold();
+        if (isGamePlaying) {
+            // 마우스가 움직여서 tang를 놓쳤는 지 확인
+            RECT mousePoint = { x, y, x + 1, y + 1 };
+            for (int i = 0; i < tangs.size(); i++) {
+                RECT result;
+                if (!IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
+                    // tang의 isHold 상태 변경
+                    tangs[i].FalseIsHold();
+                }
             }
         }
     }
@@ -453,189 +495,202 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         switch (wParam) {
             // 유저가 어떤 방향 키를 입력하는 지, 확인
-            case VK_LEFT:
-            {
+        case VK_LEFT:
+        {
+            if (isGamePlaying) {
                 isLeftPressed = true;
             }
-            break;
-            case VK_RIGHT:
-            {
+        }
+        break;
+        case VK_RIGHT:
+        {
+            if (isGamePlaying) {
                 isRightPressed = true;
             }
-            break;
-            case VK_UP:
-            {
+        }
+        break;
+        case VK_UP:
+        {
+            if (isGamePlaying) {
                 isUpPressed = true;
             }
-            break;
-            case VK_DOWN:
-            {
+        }
+        break;
+        case VK_DOWN:
+        {
+            if (isGamePlaying) {
                 isDownPressed = true;
             }
-            break;
+        }
+        break;
+        case VK_SPACE:
+        {
             // 스페이스 입력 시, 대쉬 스킬이 나가도록 설정(dashCount 0일때만, 적용)
-            case VK_SPACE:
-            {
+            if (isGamePlaying) {
                 if (dashCount == 0) {
                     user.applyDashForce();
                     user.update(map);
                     dashCount = dashCoolTime;
                 }
             }
-            break;
-            case VK_F1:
-            {
-                if (isGameOver) {
-                    MessageBox(hWnd, L"게임을 다시 시작합니다.", L"Info", MB_OK);
-                    // 기존 tang와 food 들 정리
-                    tangs.clear();
-                    foods.clear();
-                    // 유저 위치 이동
-                    user.setObj(10, 10);
-                    user.setVx(0.0);
-                    user.SetVy(0.0);
-                    // 게임 시간, 대쉬 쿨타임, 스코어 초기화
-                    gameTime = 0;
-                    dashCount = 0;
-                    score = 0;
-
-                    // 적 (default width, heigth => 50)
-                    for (int i = 0; i < STARTENEMY; i++) {
-                        Player newTang;
-                        RECT result;
-                        /*
-                            랜덤 위치 생성 로직
-                            1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
-                            2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
-                            3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
-                        */
-                        do {
-                            newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
-                        } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
-                        tangs.push_back(newTang);
-                    }
-
-                    // 4, 음식
-                    Player newFood;
-                    newFood.setWidth(30);
-                    newFood.setHeight(30);
-                    // tang와 똑같이 랜덤 위치 생성, 시작 생성 위치가 유저와 겹치면 다시 생성
-                    RECT result;
-                    do {
-                        newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
-                    } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
-                    foods.push_back(newFood);
-
-                    // 게임 오버 상태 초기화
-                    isGameOver = false;
-                    // 타이머 다시 세팅
-                    SetTimer(hWnd, FRAME_60FPS, 16, NULL);
-                    SetTimer(hWnd, ONE_SECOND, 1000, NULL);
-                }
-            }
-            default:
-            {
-            }
+        }
+        break;
+        case VK_F1:
+        {
+        }
+        break;
+        default:
+        {
+        }
+        break;
         }
     }
     break;
     case WM_KEYUP:
     {
         switch (wParam) {
-            case VK_LEFT:
-            {
-                isLeftPressed = false;
-            }
-            break;
-            case VK_RIGHT:
-            {
-                isRightPressed = false;
-            }
-            break;
-            case VK_UP:
-            {
-                isUpPressed = false;
-            }
-            break;
-            case VK_DOWN:
-            {
-                isDownPressed = false;
-            }
-            break;
-            default:
-            {
-            }
+        case VK_LEFT:
+        {
+            isLeftPressed = false;
+        }
+        break;
+        case VK_RIGHT:
+        {
+            isRightPressed = false;
+        }
+        break;
+        case VK_UP:
+        {
+            isUpPressed = false;
+        }
+        break;
+        case VK_DOWN:
+        {
+            isDownPressed = false;
+        }
+        break;
+        default:
+        {
+        }
         }
     }
     break;
     case WM_COMMAND:
+    {
+        int wmId = LOWORD(wParam);
+        // 메뉴 선택을 구문 분석합니다:
+        switch (wmId)
         {
-            int wmId = LOWORD(wParam);
-            // 메뉴 선택을 구문 분석합니다:
-            switch (wmId)
-            {
-            case IDM_ABOUT:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-                break;
-            case IDM_EXIT:
-                DestroyWindow(hWnd);
-                break;
-            default:
-                return DefWindowProc(hWnd, message, wParam, lParam);
-            }
+        case IDM_ABOUT:
+            DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+            break;
+        case IDM_EXIT:
+            DestroyWindow(hWnd);
+            break;
+        default:
+            return DefWindowProc(hWnd, message, wParam, lParam);
         }
-        break;
+    }
+    break;
     case WM_PAINT:
-        {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hWnd, &ps);
+    {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
 
-            // hdc 에는 그림을 그릴 대상과 연결되어있다.
-            // (설정된 값과 도구의 모음), (그려진 그림의 데이터는 가지고 있지 않는다.)
+        // hdc 에는 그림을 그릴 대상과 연결되어있다.
+        // (설정된 값과 도구의 모음), (그려진 그림의 데이터는 가지고 있지 않는다.)
 
+        // 더블 버퍼링 구현(중요)
+        // 변수 선언
+        HDC hMemDC;
+        HBITMAP hBitmap;
+        HBITMAP hOldBitmap;
+        HPEN myPen = 0;
+        HPEN oldPen;
+        HBRUSH myBrush = 0;
+        HBRUSH oldBrush;
+        HFONT myFont = 0;
+        HFONT oldFont;
+        RECT rect;
 
-            // 더블 버퍼링 구현(중요)
-            // 변수 선언
-            HDC hMemDC;
-            HBITMAP hBitmap;
-            HBITMAP hOldBitmap;
-            HPEN myPen, oldPen;
-            HBRUSH myBrush, oldBrush;
-            RECT rect;
+        // 클라이언트 영역 얻어오기
+        GetClientRect(hWnd, &rect);
 
-            // 클라이언트 영역 얻어오기
-            GetClientRect(hWnd, &rect);
+        // hMemDC에 메모리용 DC 생성
+        hMemDC = CreateCompatibleDC(hdc);
 
-            // hMemDC에 메모리용 DC 생성
-            hMemDC = CreateCompatibleDC(hdc);
+        // 클라이언트랑 동일한 크기의 비트맵 생성
+        hBitmap = CreateCompatibleBitmap(hdc, rect.right, rect.bottom);
 
-            // 클라이언트랑 동일한 크기의 비트맵 생성
-            hBitmap = CreateCompatibleBitmap(hdc, rect.right, rect.bottom);
+        // hMemDC에 hBitmap 비트맵을 사용하고 (hMemDC로 그림을 그릴 대상 => hBitmap)
+        // 사용하던 비트맵을 hOldBitmap에 저장한다
+        hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBitmap);
 
-            // hMemDC에 hBitmap 비트맵을 사용하고 (hMemDC로 그림을 그릴 대상 => hBitmap)
-            // 사용하던 비트맵을 hOldBitmap에 저장한다
-            hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBitmap);
+        // 백버퍼를 하얀색으로 칠한다
+        PatBlt(hMemDC, 0, 0, rect.right, rect.bottom, WHITENESS);
 
-            // 백버퍼를 하얀색으로 칠한다
-            PatBlt(hMemDC, 0, 0, rect.right, rect.bottom, WHITENESS);
+        // 백버퍼에서 그리기
 
-            // 백버퍼에서 그리기
+        // 게임 상태에 상관없이 항상 그리는 부분
+        Rectangle(hMemDC, map.left, map.top, map.right, map.bottom);
+
+        // 게임 상태가 메인 메뉴 일때, 그리는 부분
+        if (isMainMenu) {
+            // 메인 메뉴 텍스트 => 가운데 정렬
+            SetTextAlign(hMemDC, TA_CENTER);
+            // 타이틀 폰트 50px
+            myFont = CreateFont(50, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                DEFAULT_PITCH | FF_SWISS, L"Arial");
+            oldFont = (HFONT)SelectObject(hMemDC, myFont);
+            // 게임 타이틀
+            WCHAR gameMainTitle[30] = L"Bullet-Heaven";
+            TextOut(hMemDC, map.left + ((map.right - map.left) / 2), map.top + 100, gameMainTitle, lstrlen(gameMainTitle));
+
+            // 게임 시작 버튼 && start 텍스트
+            myFont = CreateFont(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                DEFAULT_PITCH | FF_SWISS, L"Arial");
+            SelectObject(hMemDC, myFont);
+            Rectangle(hMemDC, startButton.left, startButton.top, startButton.right, startButton.bottom);
+            WCHAR startButtonText[10] = L"STRAT";
+            TextOut(hMemDC, startButton.left + ((startButton.right - startButton.left) / 2), startButton.top + 10, startButtonText, lstrlen(startButtonText));
+            SelectObject(hMemDC, oldFont);
+            SetTextAlign(hMemDC, TA_LEFT);
+        }
+
+        // 게임 상태가 진행 중 일때, 그리는 부분
+        if (isGamePlaying) {
+            int textV_gap = 10;
+
+            // 게임 타이머
+            WCHAR timerText[100];
+            wsprintfW(timerText, L"Time : %d", gameTime);
+            TextOut(hMemDC, map.right + 10, map.top + textV_gap, timerText, lstrlenW(timerText));
+            textV_gap += 20;
+
+            // 게임 스코어
             WCHAR scoreText[100];
             wsprintfW(scoreText, L"Score : %d", score);
-            
-            WCHAR dashText[100];
+            TextOut(hMemDC, map.right + 10, map.top + textV_gap, scoreText, lstrlenW(scoreText));
+            textV_gap += 20;
+
+            // 대쉬
+            WCHAR dashText[50];
             if (dashCount == 0) {
                 wsprintfW(dashText, L"Dash Ready!");
             }
-            else{
+            else {
                 wsprintfW(dashText, L"Dash CoolTime : %d", dashCount);
             }
+            TextOut(hMemDC, map.right + 10, map.top + textV_gap, dashText, lstrlenW(dashText));
+            textV_gap += 20;
 
-            WCHAR timerText[100];
-            wsprintfW(timerText, L"Time : %d", gameTime);
 
-            Rectangle(hMemDC, map.left, map.top, map.right, map.bottom);
+            // user 위치
             Rectangle(hMemDC, user.getLeft(), user.getTop(), user.getRight(), user.getBottom());
+
+            // tangs 위치
             for (int i = 0; i < tangs.size(); i++) {
                 if (!tangs[i].getIsHold()) {
                     Ellipse(hMemDC, tangs[i].getLeft(), tangs[i].getTop(), tangs[i].getRight(), tangs[i].getBottom());
@@ -647,59 +702,69 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     myBrush = (HBRUSH)SelectObject(hMemDC, oldBrush);
                 }
             }
+
+            // foods 위치
             for (int i = 0; i < foods.size(); i++) {
                 Ellipse(hMemDC, foods[i].getLeft(), foods[i].getTop(), foods[i].getRight(), foods[i].getBottom());
             }
-            TextOut(hMemDC, map.right + 10, map.top + 10, timerText, lstrlenW(timerText));
-            TextOut(hMemDC, map.right + 10, map.top + 30, scoreText, lstrlenW(scoreText));
-            TextOut(hMemDC, map.right + 10, map.top + 50, dashText, lstrlenW(dashText));
-            
-            Rectangle(hMemDC, map.left, map.bottom, map.right, map.bottom + 10);
+
+
+            // enemy 게이지 바
+            Rectangle(hMemDC, map.left, map.bottom, map.right, map.bottom + 10); // 전체 게이지 바
+            // 게이지 간격
+            for (int i = 1; i <= 4; i++) {
+                int gaugeGap = (map.right - map.left) / 5;
+                MoveToEx(hMemDC, map.left + gaugeGap * i, map.bottom, NULL);
+                LineTo(hMemDC, map.left + gaugeGap * i, map.bottom + 10);
+            }
+            // 
             myPen = CreatePen(PS_NULL, NULL, NULL);
             oldPen = (HPEN)SelectObject(hMemDC, myPen);
             myBrush = CreateSolidBrush(RGB(255, 0, 0));
             oldBrush = (HBRUSH)SelectObject(hMemDC, myBrush);
             int enemyGauge = map.left;
+            // 게이지 전체는 100, 게이지 간격 20, 20당 구간 길이 => (map.right - map.left) / 5
             enemyGauge += (score % 100 / 20) * (map.right - map.left) / 5;
             Rectangle(hMemDC, map.left, map.bottom, enemyGauge, map.bottom + 10);
 
             SelectObject(hMemDC, oldPen);
             SelectObject(hMemDC, oldBrush);
 
-            for (int i = 1; i <= 4; i++) {
-                int gaugeGap = (map.right - map.left) / 5;
-                MoveToEx(hMemDC, map.left + gaugeGap * i, map.bottom, NULL);
-                LineTo(hMemDC, map.left + gaugeGap * i, map.bottom + 10);
-            }
-            
-            // isGameOver 시, f1z키 입력 시) 다시 시작 텍스트 표시
+            // 게임 상태가 게임 오버 일때, 그리는 부분
             if (isGameOver) {
                 WCHAR overText[100];
                 wsprintfW(overText, L"F1 입력 시, 다시 시작");
                 TextOut(hMemDC, map.right + 10, map.top + 70, overText, lstrlenW(overText));
             }
-                
-            // 백버퍼에 그려진 내용을 hdc로 복사
-            BitBlt(hdc, 0, 0, rect.right, rect.bottom, hMemDC, 0, 0, SRCCOPY);
-
-            // 리소스 해제
-            SelectObject(hMemDC, hOldBitmap);
-            DeleteObject(myPen);
-            DeleteObject(myBrush);
-            DeleteObject(hBitmap);
-            DeleteObject(hMemDC);
-
-            // TODO: 여기에 hdc를 사용하는 그리기 코드를 추가합니다...
-            EndPaint(hWnd, &ps);
         }
-        break;
+
+        // 백버퍼에 그려진 내용을 hdc로 복사
+        BitBlt(hdc, 0, 0, rect.right, rect.bottom, hMemDC, 0, 0, SRCCOPY);
+
+        // 리소스 해제
+        SelectObject(hMemDC, hOldBitmap);
+        DeleteObject(myPen);
+        DeleteObject(myBrush);
+        DeleteObject(myFont);
+        DeleteObject(hBitmap);
+        DeleteObject(hMemDC);
+
+        // TODO: 여기에 hdc를 사용하는 그리기 코드를 추가합니다...
+        EndPaint(hWnd, &ps);
+    }
+    break;
     case WM_DESTROY:
+    {
         //DestroyWindow(g_button);
         tangs.clear();
         PostQuitMessage(0);
-        break;
+    }
+    break;
     default:
+    {
         return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    break;
     }
     return 0;
 }
