@@ -166,10 +166,12 @@ int g_x = 0;
 int g_y = 0;
 
 // 게임 상태 플래그 변수
-bool isMainMenu = true;
-bool isGamePlaying = false;
-bool isGameOver = false;
+bool isMainMenu, isGamePlaying, isGameOver;
 
+// 게임 로직 공용 함수 선언
+void normalization(float*, float*); // 방향 벡터 정규화 함수
+void initGame(); // 게임 시작 시, 초기화 담당 함수
+void changeGameStatus(int); // 게임 상태 변경 함수
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -179,6 +181,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         // 난수 초기화
         srand(time(NULL));
+        // 게임 디폴트 상태(메인 메뉴)
+        changeGameStatus(MAIN_MENU);
     }
     break;
     case WM_TIMER:
@@ -203,13 +207,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
 
             // 대각선 이동 시, 속도 빨라지는 것 방지(정규화)
-            float distance = sqrt(m_x * m_x + m_y * m_y);
-            if (distance != 0) {
-                m_x /= distance;
-                m_y /= distance;
-            }
+            normalization(&m_x, &m_y);
 
-            user.applyForce(m_x * 0.5f, m_y * 0.5f);
+            user.applyForce(m_x * USER_FORCE, m_y * USER_FORCE);
 
             user.update(map);
 
@@ -230,20 +230,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                     // tang 간의 충돌 비교(IntersectRect() 함수 사용)
                     if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
                         // 충돌 시, 어느 방향으로 튕겨나가야 할지 계산
-                        // ex) dirX = a.left - b.left => dirX는 a의 x축 방향 벡터 값★★★★ 
+                        // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★ 
                         float dirX = tangs[j].getLeft() - tangs[i].getLeft();
                         float dirY = tangs[j].getTop() - tangs[i].getTop();
 
                         // 계산한 방향 벡터를 정규화
-                        float distance = sqrt(dirX * dirX + dirY * dirY);
-                        if (distance != 0) {
-                            dirX /= distance;
-                            dirY /= distance;
-                        }
+                        normalization(&dirX, &dirY);
 
                         // 각 tang에 가속도에 방향 벡터 값 추가 
-                        tangs[i].applyForce(-dirX * 2, -dirY * 2);
-                        tangs[j].applyForce(dirX * 2, dirY * 2);
+                        tangs[i].applyForce(-dirX * TANG_CRASH_FORCE, -dirY * TANG_CRASH_FORCE);
+                        tangs[j].applyForce(dirX * TANG_CRASH_FORCE, dirY * TANG_CRASH_FORCE);
 
                         // tang의 물리 상태 업데이트
                         tangs[i].update(map);
@@ -260,24 +256,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 }
 
                 // tangs[i]에서 user를 향하는 방향 벡터 계산
-                // ex) dirX = a.left - b.left => dirX는 a의 x축 방향 벡터 값★★★★
+                // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★
                 float dirX = user.getLeft() - tangs[i].getLeft();
                 float dirY = user.getTop() - tangs[i].getTop();
 
-                // 벡터의 크기(거리) 계산
-                float distance = sqrt(dirX * dirX + dirY * dirY);
-
-                // 정규화를 통해서 백터 방향만 구하기
-                // 거리가 0일 때 0으로 나누는 것을 방지
-                if (distance != 0) {
-                    dirX /= distance;
-                    dirY /= distance;
-                }
+                // 계산한 방향 벡터를 정규화
+                normalization(&dirX, &dirY);
 
                 // tang에게 정규화된 방향으로 힘을 가함
-                float baseTangForce = 0.1f; // tang의 기본 추격 가속도
-                float forcePerScore = 0.02f; // 점수 50당 증가할 가속도
-                float tangForce = baseTangForce + ((score / 50) * forcePerScore);
+                int increasedTime = score / TANG_UNIT_SCORE;
+                float tangForce = TANG_DEFAULT_CHASE_FORCE + (TANG_ADDITIONAL_CHASE_FORCE * increasedTime);
                 tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
 
                 // tang의 물리 상태 업데이트
@@ -292,21 +280,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 //tang 중앙으로 위치 보정
                 // g_x, g_y => 마우스 위치
                 // tang의 중앙 위치 값 구한 뒤, 방향 벡터 구하기
-                float dirX = g_x - (tangs[i].getLeft() + tangs[i].getWidth() / 2);
-                float dirY = g_y - (tangs[i].getTop() + tangs[i].getHeight() / 2);
+                int center_x = tangs[i].getLeft() + tangs[i].getWidth() / 2;
+                int center_y = tangs[i].getTop() + tangs[i].getHeight() / 2;
 
-                // 벡터의 크기 계산
-                float distance = sqrt(dirX * dirX + dirY * dirY);
+                float dirX = g_x - center_x;
+                float dirY = g_y - center_y;
 
-                // 벡터 정규화 and 거리 0일때 제외
-                if (distance != 0) {
-                    dirX /= distance;
-                    dirY /= distance;
-                }
+                // 계산한 방향 벡터를 정규화
+                normalization(&dirX, &dirY);
 
                 // tang에게 정규화된 방향으로 힘을 가함
-                float holdTangForce = 1.0f; // tang의 hold 시 가속도
-                tangs[i].applyForce(dirX * holdTangForce, dirY * holdTangForce);
+                tangs[i].applyForce(dirX * TANG_HOLD_FORCE, dirY * TANG_HOLD_FORCE);
 
                 // tang의 물리 상태 업데이트
                 tangs[i].update(map);
@@ -359,15 +343,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 if (IntersectRect(&ret_tang, user.getObj(), tangs[i].getObj())) {
                     KillTimer(hWnd, FRAME_60FPS);
                     KillTimer(hWnd, ONE_SECOND);
-                    isGameOver = true;
+                    changeGameStatus(GAME_OVER);
                     MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
-                    isDownPressed = false;
-                    isLeftPressed = false;
-                    isRightPressed = false;
-                    isUpPressed = false;
-                    isMainMenu = true;
-                    isGamePlaying = false;
-                    isGameOver = false;
+                    changeGameStatus(INIT_USER_ARROW_KEY);
+                    changeGameStatus(MAIN_MENU);
                 }
             }
 
@@ -401,48 +380,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             RECT result;
             if (IntersectRect(&result, &startButton, &mousePoint)) {
                 // 게임 시작 버튼 클릭 시,  게임 초기화 위치
-                // 기존 tang와 food 들 정리
-                tangs.clear();
-                foods.clear();
-                // 유저 위치 이동 && 속도 초기화
-                user.setObj(10, 10);
-                user.setVx(0.0);
-                user.SetVy(0.0);
-                // 게임 시간, 대쉬 쿨타임, 스코어 초기화
-                gameTime = 0;
-                dashCount = 0;
-                score = 0;
-
-                // 적 (default width, heigth => 50)
-                for (int i = 0; i < STARTENEMY; i++) {
-                    Player newTang;
-                    RECT result;
-                    /*
-                        랜덤 위치 생성 로직
-                        1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
-                        2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
-                        3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
-                    */
-                    do {
-                        newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
-                    } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
-                    tangs.push_back(newTang);
-                }
-
-                // 4, 음식
-                Player newFood;
-                newFood.setWidth(30);
-                newFood.setHeight(30);
-                // tang와 똑같이 랜덤 위치 생성, 시작 생성 위치가 유저와 겹치면 다시 생성
-                RECT result;
-                do {
-                    newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
-                } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
-                foods.push_back(newFood);
-
+                initGame();
                 // 게임 상태 초기화
-                isMainMenu = false;
-                isGamePlaying = true;
+                changeGameStatus(GAME_PLAYING);
                 // 타이머 다시 세팅
                 SetTimer(hWnd, FRAME_60FPS, 16, NULL);
                 SetTimer(hWnd, ONE_SECOND, 1000, NULL);
@@ -787,4 +727,92 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     }
     return (INT_PTR)FALSE;
+}
+
+// 게임 로직 공용 함수 정의
+void initGame() {
+    // 기존 tang와 food 들 정리
+    tangs.clear();
+    foods.clear();
+    // 유저 위치 이동 && 속도 초기화
+    user.setObj(10, 10);
+    user.setVx(0.0);
+    user.SetVy(0.0);
+    // 게임 시간, 대쉬 쿨타임, 스코어 초기화
+    gameTime = 0;
+    dashCount = 0;
+    score = 0;
+
+    // 적 (default width, heigth => 50)
+    for (int i = 0; i < STARTENEMY; i++) {
+        Player newTang;
+        RECT result;
+        /*
+            랜덤 위치 생성 로직
+            1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
+            2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
+            3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
+        */
+        do {
+            newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
+        } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+        tangs.push_back(newTang);
+    }
+
+    // 4, 음식
+    Player newFood;
+    newFood.setWidth(30);
+    newFood.setHeight(30);
+    // tang와 똑같이 랜덤 위치 생성, 시작 생성 위치가 유저와 겹치면 다시 생성
+    RECT result;
+    do {
+        newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
+    } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
+    foods.push_back(newFood);
+}
+void changeGameStatus(int status) {
+    switch (status) {
+    case MAIN_MENU:
+    {
+        isMainMenu = true;
+        isGamePlaying = false;
+        isGameOver = false;
+    }
+    break;
+    case GAME_PLAYING:
+    {
+        isMainMenu = false;
+        isGamePlaying = true;
+        isGameOver = false;
+    }
+    break;
+    case GAME_STOP:
+    {
+    }
+    break;
+    case GAME_OVER:
+    {
+        isGameOver = false;
+    }
+    break;
+    case INIT_USER_ARROW_KEY:
+    {
+        isDownPressed = false;
+        isLeftPressed = false;
+        isRightPressed = false;
+        isUpPressed = false;
+    }
+    break;
+    default:
+    {
+    }
+    break;
+    }
+}
+void normalization(float* x, float* y) {
+    float distance = sqrt((*x) * (*x) + (*y) * (*y));
+    if (distance != 0) {
+        *x /= distance;
+        *y /= distance;
+    }
 }
