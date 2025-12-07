@@ -134,14 +134,14 @@ std::vector<Player> tangs;
 std::vector<Player> foods;
 
 // 전체 사용 맵
-RECT map = { 10,10,800,800 };
+RECT map = { 10,10,1000,800 };
 
 // 게임 시작 버튼 위치
 RECT startButton = {
     ((map.right - map.left) / 2 - 70),
-    (map.top + 200),
+    (map.top + 300),
     ((map.right - map.left) / 2 + 70),
-    (map.top + 200 + 50)
+    (map.top + 300 + 50)
 };
 
 // 키다운 확인
@@ -356,10 +356,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
         case ONE_SECOND:
         {
-            // 타이머 증가 로직 + 대수 쿨타임 계산
-            gameTime++;
-            if (dashCount > 0) {
-                dashCount--;
+            if (isGamePlaying) {
+                // 타이머 증가 로직 + 대수 쿨타임 계산
+                gameTime++;
+                if (dashCount > 0) {
+                    dashCount--;
+                }
             }
         }
         break;
@@ -374,9 +376,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         int x = LOWORD(lParam);
         int y = HIWORD(lParam);
+        RECT mousePoint = { x, y ,x + 1, y + 1 };
         // 게임 상태가 isMainMenu일때
         if (isMainMenu) {
-            RECT mousePoint = { x, y ,x + 1, y + 1 };
             RECT result;
             if (IntersectRect(&result, &startButton, &mousePoint)) {
                 // 게임 시작 버튼 클릭 시,  게임 초기화 위치
@@ -413,19 +415,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     break;
     case WM_MOUSEMOVE:
     {
-        // 마우스 포인터 위치 저장
-        g_x = LOWORD(lParam);
-        g_y = HIWORD(lParam);
-        int x = LOWORD(lParam);
-        int y = HIWORD(lParam);
         if (isGamePlaying) {
-            // 마우스가 움직여서 tang를 놓쳤는 지 확인
+            // 마우스 포인터 위치 저장
+            g_x = LOWORD(lParam);
+            g_y = HIWORD(lParam);
+            int x = LOWORD(lParam);
+            int y = HIWORD(lParam);
             RECT mousePoint = { x, y, x + 1, y + 1 };
-            for (int i = 0; i < tangs.size(); i++) {
-                RECT result;
-                if (!IntersectRect(&result, tangs[i].getObj(), &mousePoint)) {
-                    // tang의 isHold 상태 변경
-                    tangs[i].FalseIsHold();
+            if (isGamePlaying) {
+                // 마우스가 움직여서 tang를 놓쳤는 지 확인
+                for (int i = 0; i < tangs.size(); i++) {
+                    RECT result;
+                    RECT tangCorrectionArea = { tangs[i].getLeft() - 20,tangs[i].getTop() - 20,tangs[i].getRight() + 20,tangs[i].getBottom() + 20 };
+                    if (!IntersectRect(&result, &tangCorrectionArea, &mousePoint)) {
+                        // tang의 isHold 상태 변경
+                        tangs[i].FalseIsHold();
+                    }
                 }
             }
         }
@@ -435,28 +440,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         switch (wParam) {
             // 유저가 어떤 방향 키를 입력하는 지, 확인
-        case VK_LEFT:
+        case 'A':
         {
             if (isGamePlaying) {
                 isLeftPressed = true;
             }
         }
         break;
-        case VK_RIGHT:
+        case 'D':
         {
             if (isGamePlaying) {
                 isRightPressed = true;
             }
         }
         break;
-        case VK_UP:
+        case 'W':
         {
             if (isGamePlaying) {
                 isUpPressed = true;
             }
         }
         break;
-        case VK_DOWN:
+        case 'S':
         {
             if (isGamePlaying) {
                 isDownPressed = true;
@@ -489,24 +494,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_KEYUP:
     {
         switch (wParam) {
-        case VK_LEFT:
+        case 'A':
         {
-            isLeftPressed = false;
+            if (isGamePlaying) {
+                isLeftPressed = false;
+            }
         }
         break;
-        case VK_RIGHT:
+        case 'D':
         {
-            isRightPressed = false;
+            if (isGamePlaying) {
+                isRightPressed = false;
+            }
         }
         break;
-        case VK_UP:
+        case 'W':
         {
-            isUpPressed = false;
+            if (isGamePlaying) {
+                isUpPressed = false;
+            }
         }
         break;
-        case VK_DOWN:
+        case 'S':
         {
-            isDownPressed = false;
+            if (isGamePlaying) {
+                isDownPressed = false;
+            }
         }
         break;
         default:
@@ -603,6 +616,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (isGamePlaying) {
             int textV_gap = 10;
 
+            myFont = CreateFont(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                DEFAULT_PITCH | FF_SWISS, L"Arial");
+            oldFont = (HFONT)SelectObject(hMemDC, myFont);
             // 게임 타이머
             WCHAR timerText[100];
             wsprintfW(timerText, L"Time : %d", gameTime);
@@ -626,6 +643,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             TextOut(hMemDC, map.right + 10, map.top + textV_gap, dashText, lstrlenW(dashText));
             textV_gap += 20;
 
+            SelectObject(hMemDC, oldFont);
 
             // user 위치
             Rectangle(hMemDC, user.getLeft(), user.getTop(), user.getRight(), user.getBottom());
@@ -672,8 +690,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             // 게임 상태가 게임 오버 일때, 그리는 부분
             if (isGameOver) {
-                WCHAR overText[100];
-                wsprintfW(overText, L"F1 입력 시, 다시 시작");
+                WCHAR overText[50] = L"F1 입력 시, 다시 시작";
                 TextOut(hMemDC, map.right + 10, map.top + 70, overText, lstrlenW(overText));
             }
         }
@@ -697,6 +714,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         //DestroyWindow(g_button);
         tangs.clear();
+        foods.clear();
         PostQuitMessage(0);
     }
     break;
@@ -735,7 +753,10 @@ void initGame() {
     tangs.clear();
     foods.clear();
     // 유저 위치 이동 && 속도 초기화
-    user.setObj(10, 10);
+    // 유저 시작 위치 => 맵 정중앙
+    int user_x = ((map.right - map.left) / 2) - (user.getWidth() / 2);
+    int user_y = ((map.bottom - map.top) / 2) - (user.getHeight() / 2);
+    user.setObj(user_x, user_y);
     user.setVx(0.0);
     user.SetVy(0.0);
     // 게임 시간, 대쉬 쿨타임, 스코어 초기화
