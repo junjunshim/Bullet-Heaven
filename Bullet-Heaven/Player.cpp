@@ -172,6 +172,23 @@ void Player::update(RECT map) {
 	this->obj.bottom = (int)this->y + height;
 }
 
+// bullet 전용 등속 운동
+bool Player::constantMove(RECT map) {
+	this->x += this->vx;
+	this->y += this->vy;
+
+	this->setObj((int)this->x, (int)this->y);
+
+	int margin = 50;
+
+	if (this->x < map.left - margin || this->x > map.right + margin ||
+		this->y < map.top - margin || this->y > map.bottom + margin) {
+		return false;
+	}
+
+	return true;
+}
+
 // moveForce setter
 void Player::setMoveForce(float force) {
 	this->moveForce = force;

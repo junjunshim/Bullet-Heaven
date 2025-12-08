@@ -60,6 +60,8 @@ public:
 
 	// 물리엔진용 
 	void update(RECT);
+	// bullet 전용 등속운동
+	bool constantMove(RECT);
 	// 지정 가속도 증가
 	void applyForce(float, float);
 	// moveForce만큼 증가

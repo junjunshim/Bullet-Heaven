@@ -132,6 +132,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 Player user;
 std::vector<Player> tangs;
 std::vector<Player> foods;
+std::vector<Player> bullets;
 
 // 전체 사용 맵
 RECT map = { 10,10,1200,800 };
@@ -158,7 +159,7 @@ int score = 0;
 int point = 25;
 
 // 대쉬용 변수
-int dashCoolTime = 20;
+int dashCoolTime = 10;
 int dashCount = 0;
 
 // 마우스 위치
@@ -180,6 +181,7 @@ void changeGameStatus(int); // 게임 상태 변경 함수
 HANDLE g_mux;
 HANDLE hUserThread;
 HANDLE hTangThread;
+HANDLE hBulletThread;
 
 // user스레드
 DWORD WINAPI UserLogic(LPVOID param) {
@@ -284,7 +286,7 @@ DWORD WINAPI TangsLogic(LPVOID param) {
                 // tang 간의 충돌 비교(IntersectRect() 함수 사용)
                 if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
                     // 충돌 시, 어느 방향으로 튕겨나가야 할지 계산
-                    // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★ 
+                    // ex) dirX = a.left - b.left => dirX는 b가 a로 향하는 x축 방향 벡터 값★★★★ 
                     float dirX = tangs[j].getLeft() - tangs[i].getLeft();
                     float dirY = tangs[j].getTop() - tangs[i].getTop();
 
@@ -310,7 +312,7 @@ DWORD WINAPI TangsLogic(LPVOID param) {
             }
 
             // tangs[i]에서 user를 향하는 방향 벡터 계산
-            // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★
+            // ex) dirX = a.left - b.left => dirX는 b가 a로 향하는 x축 방향 벡터 값★★★★
             float dirX = user.getLeft() - tangs[i].getLeft();
             float dirY = user.getTop() - tangs[i].getTop();
 
@@ -321,8 +323,8 @@ DWORD WINAPI TangsLogic(LPVOID param) {
             int increasedTime = score / TANG_UNIT_SCORE;
             float tangForce = TANG_DEFAULT_CHASE_FORCE + (TANG_ADDITIONAL_CHASE_FORCE * increasedTime);
             // tang의 최대 속도 =>  user의 70%
-            if (tangForce > USER_FORCE * 0.7) {
-                tangForce = USER_FORCE * 0.7;
+            if (tangForce > USER_FORCE * 0.6) {
+                tangForce = USER_FORCE * 0.6;
             }
             tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
 
@@ -365,6 +367,101 @@ DWORD WINAPI TangsLogic(LPVOID param) {
             }
         }
 
+        // 임계영역 해제!!!!!!!
+        ReleaseMutex(g_mux);
+
+        if (isCrashed) {
+            KillTimer(hWnd, FRAME_60FPS);
+            KillTimer(hWnd, ONE_SECOND);
+            changeGameStatus(GAME_OVER);
+            MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
+            changeGameStatus(INIT_USER_ARROW_KEY);
+            InvalidateRect(hWnd, NULL, FALSE);
+        }
+    }
+    ExitThread(0);
+    return 0;
+}
+
+// bullet 스레드
+DWORD WINAPI BulletsLogic(LPVOID param) {
+    HWND hWnd = (HWND)param;
+    int lastShotTime = -1;
+    while (isGamePlaying && !isGameOver) {
+        Sleep(16);
+        WaitForSingleObject(g_mux, INFINITE);
+        // 임계영역 시작!!!!!!!
+        int creation_time = BULLET_DEFAULT_TIME - (score / BULLET_UNIT_SCORE) * BULLET_REDUCED_TIME;
+        if (creation_time < BULLET_TIME_MIN) {
+            creation_time = BULLET_TIME_MIN;
+        }
+        if (gameTime > 0 && (gameTime % creation_time == 0) && (gameTime != lastShotTime)) {
+            lastShotTime = gameTime;
+
+            Player newBullet;
+
+            newBullet.setWidth(BULLET_SIZE);
+            newBullet.setHeight(BULLET_SIZE);
+
+            // 맵 가장자리 랜덤 위치 선정
+            // 0:상, 1:하, 2:좌, 3:우
+            int edge = rand() % 4;
+            int startX = 0, startY = 0;
+
+            switch (edge) {
+            case 0: // 상 (Top)
+                startX = rand() % (map.right - map.left) + map.left;
+                startY = map.top - BULLET_SIZE;
+                break;
+            case 1: // 하 (Bottom)
+                startX = rand() % (map.right - map.left) + map.left;
+                startY = map.bottom;
+                break;
+            case 2: // 좌 (Left)
+                startX = map.left - BULLET_SIZE;
+                startY = rand() % (map.bottom - map.top) + map.top;
+                break;
+            case 3: // 우 (Right)
+                startX = map.right;
+                startY = rand() % (map.bottom - map.top) + map.top;
+                break;
+            }
+            newBullet.setObj(startX, startY);
+
+            // 생성되는 순간 유저를 향해 방향 계산 (직선)
+            float dirX = user.getLeft() - startX;
+            float dirY = user.getTop() - startY;
+            normalization(&dirX, &dirY);
+
+            // 속도 적용 (한 번 정해지면 바뀌지 않음)
+            newBullet.setVx(dirX * BULLET_SPEED);
+            newBullet.SetVy(dirY * BULLET_SPEED);
+
+            bullets.push_back(newBullet);
+        }
+
+        auto it = bullets.begin();
+        while (it != bullets.end()) {
+
+            // constantMove가 false를 반환하면(맵 밖으로 나감) -> 삭제
+            // constantMove가 true를 반환하면(맵 안임) -> 살려둠
+            if (it->constantMove(map) == false) {
+                it = bullets.erase(it); // 삭제하고 다음 요소 받기
+            }
+            else {
+                ++it; // 다음 요소로 이동
+            }
+        }
+
+        // 3. 충돌 검사 (User vs Bullets)
+        bool isCrashed = false;
+        for (int i = 0; i < bullets.size(); i++) {
+            RECT ret;
+            if (IntersectRect(&ret, user.getObj(), bullets[i].getObj())) {
+                isCrashed = true;
+                break;
+            }
+        }
         // 임계영역 해제!!!!!!!
         ReleaseMutex(g_mux);
 
@@ -445,8 +542,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 if (hTangThread != NULL) {
                     CloseHandle(hTangThread);
                 }
+                if (hBulletThread != NULL) {
+                    CloseHandle(hBulletThread);
+                }
                 hUserThread = CreateThread(NULL, 0, UserLogic, hWnd, 0, NULL);
                 hTangThread = CreateThread(NULL, 0, TangsLogic, hWnd, 0, NULL);
+                hBulletThread = CreateThread(NULL, 0, BulletsLogic, hWnd, 0, NULL);
             }
         }
         if (isGamePlaying) {
@@ -639,6 +740,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         HBRUSH tangBrush = CreateSolidBrush(RGB(255, 0, 0));
         HBRUSH holdBrush = CreateSolidBrush(RGB(0, 20, 150));
         HBRUSH foodBrush = CreateSolidBrush(RGB(0, 150, 0));
+        HBRUSH bulletBrush = CreateSolidBrush(RGB(255, 212, 0));
         HBRUSH oldBrush;
         // 폰트
         HFONT titleFont = CreateFont(50, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
@@ -739,9 +841,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 oldFont = (HFONT)SelectObject(hMemDC, debugFont);
                 int debug_text_start = text_start + 100;
 
-                // tang와 food의 개수
-                WCHAR objectCount[50];
-                wsprintfW(objectCount, L"tang의 수 : %d, food의 수 : %d", (int)tangs.size(), (int)foods.size());
+                // tang, food, bullet의 개수
+                WCHAR objectCount[100];
+                wsprintfW(objectCount, L"tang의 수 : %d, food의 수 : %d, bullet의 수 : %d", (int)tangs.size(), (int)foods.size(), (int)bullets.size());
                 TextOut(hMemDC, map.right + 10, map.top + debug_text_start, objectCount, lstrlenW(objectCount));
                 debug_text_start += textV_gap;
 
@@ -762,12 +864,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 SelectObject(hMemDC, oldFont);
             }
 
-            
-
             // user 위치
             oldBrush = (HBRUSH)SelectObject(hMemDC, userBrush);
             Rectangle(hMemDC, user.getLeft(), user.getTop(), user.getRight(), user.getBottom());
             SelectObject(hMemDC, oldBrush);
+            
+            // bullets 위치
+            for (int i = 0; i < bullets.size(); i++) {
+                oldBrush = (HBRUSH)SelectObject(hMemDC, bulletBrush);
+                Ellipse(hMemDC, bullets[i].getLeft(), bullets[i].getTop(), bullets[i].getRight(), bullets[i].getBottom());
+                SelectObject(hMemDC, oldBrush);
+            }
 
             // tangs 위치
             for (int i = 0; i < tangs.size(); i++) {
@@ -855,9 +962,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (hTangThread != NULL) {
             CloseHandle(hTangThread);
         }
+        if (hBulletThread != NULL) {
+            CloseHandle(hBulletThread);
+        }
         //DestroyWindow(g_button);
         tangs.clear();
         foods.clear();
+        bullets.clear();
         PostQuitMessage(0);
     }
     break;
@@ -895,6 +1006,7 @@ void initGame() {
     // 기존 tang와 food 들 정리
     tangs.clear();
     foods.clear();
+    bullets.clear();
     // 유저 위치 이동 && 속도 초기화
     // 유저 시작 위치 => 맵 정중앙
     int user_x = ((map.right - map.left) / 2) - (user.getWidth() / 2);
