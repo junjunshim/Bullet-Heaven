@@ -167,6 +167,7 @@ int g_y = 0;
 
 // 게임 상태 플래그 변수
 bool isMainMenu, isGamePlaying, isGameOver;
+bool isDebugMode = false;
 
 // 게임 로직 공용 함수 선언
 void normalization(float*, float*); // 방향 벡터 정규화 함수
@@ -176,13 +177,14 @@ void changeGameStatus(int); // 게임 상태 변경 함수
 // 상호배제 진행 => mutex 사용
 // user로직과 tangs의 로직 각각 스레드로 변경
 // + WM_PAINT에서도 상호배제 필요
-
 HANDLE g_mux;
+HANDLE hUserThread;
+HANDLE hTangThread;
 
 // user스레드
 DWORD WINAPI UserLogic(LPVOID param) {
     HWND hWnd = (HWND)param;
-    while (isGamePlaying) {
+    while (isGamePlaying && !isGameOver) {
         Sleep(16);
         WaitForSingleObject(g_mux, INFINITE);
         // 임계영역 시작!!!!!!!
@@ -221,11 +223,10 @@ DWORD WINAPI UserLogic(LPVOID param) {
                 do {
                     foods[i].setObj(rand() % (map.right - foods[i].getWidth() - map.left) + map.left, rand() % (map.bottom - foods[i].getHeight() - map.top) + map.top);
                 } while (IntersectRect(&re, user.getObj(), foods[i].getObj()));
-                // 100점마다 tang 증가 로직 + food 증가 로직
-                if (score % 100 == 0) {
+                // 100점마다 tang 증가 로직, 최대 8개
+                if ((score % 100 == 0) && (tangs.size() < 8)) {
                     // tang 증가
                     Player newTang;
-                    RECT result;
                     /*
                         랜덤 위치 생성 로직
                         1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
@@ -234,16 +235,18 @@ DWORD WINAPI UserLogic(LPVOID param) {
                     */
                     do {
                         newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
-                    } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+                    } while (IntersectRect(&re, user.getObj(), newTang.getObj()));
                     tangs.push_back(newTang);
-
+                }
+                // 100점마다 food 증가 로직, 최대 15개
+                if ((score % 100 == 0) && (foods.size() < 15)) {
                     // food 증가
                     Player newFood;
                     newFood.setWidth(30);
                     newFood.setHeight(30);
                     do {
                         newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
-                    } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
+                    } while (IntersectRect(&re, user.getObj(), newFood.getObj()));
                     foods.push_back(newFood);
                 }
             }
@@ -259,7 +262,7 @@ DWORD WINAPI UserLogic(LPVOID param) {
 // tangs 스레드
 DWORD WINAPI TangsLogic(LPVOID param) {
     HWND hWnd = (HWND)param;
-    while (isGamePlaying) {
+    while (isGamePlaying && !isGameOver) {
         Sleep(16);
         WaitForSingleObject(g_mux, INFINITE);
         // 임계영역 시작!!!!!!!
@@ -317,6 +320,10 @@ DWORD WINAPI TangsLogic(LPVOID param) {
             // tang에게 정규화된 방향으로 힘을 가함
             int increasedTime = score / TANG_UNIT_SCORE;
             float tangForce = TANG_DEFAULT_CHASE_FORCE + (TANG_ADDITIONAL_CHASE_FORCE * increasedTime);
+            // tang의 최대 속도 =>  user의 70%
+            if (tangForce > USER_FORCE * 0.7) {
+                tangForce = USER_FORCE * 0.7;
+            }
             tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
 
             // tang의 물리 상태 업데이트
@@ -367,7 +374,6 @@ DWORD WINAPI TangsLogic(LPVOID param) {
             changeGameStatus(GAME_OVER);
             MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
             changeGameStatus(INIT_USER_ARROW_KEY);
-            changeGameStatus(MAIN_MENU);
             InvalidateRect(hWnd, NULL, FALSE);
         }
     }
@@ -433,8 +439,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 SetTimer(hWnd, FRAME_60FPS, 16, NULL);
                 SetTimer(hWnd, ONE_SECOND, 1000, NULL);
                 /// Mutex 스레드 생성
-                CreateThread(NULL, 0, UserLogic, hWnd, 0, NULL);
-                CreateThread(NULL, 0, TangsLogic, hWnd, 0, NULL);
+                if (hUserThread != NULL) {
+                    CloseHandle(hUserThread);
+                }
+                if (hTangThread != NULL) {
+                    CloseHandle(hTangThread);
+                }
+                hUserThread = CreateThread(NULL, 0, UserLogic, hWnd, 0, NULL);
+                hTangThread = CreateThread(NULL, 0, TangsLogic, hWnd, 0, NULL);
             }
         }
         if (isGamePlaying) {
@@ -486,7 +498,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_KEYDOWN:
     {
         switch (wParam) {
-            // 유저가 어떤 방향 키를 입력하는 지, 확인
+        // 유저가 어떤 방향 키를 입력하는 지, 확인
         case 'A':
         {
             if (isGamePlaying) {
@@ -529,6 +541,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
         case VK_F1:
         {
+            if (isGameOver) {
+                changeGameStatus(MAIN_MENU);
+                InvalidateRect(hWnd, NULL, FALSE);
+            }
+        }
+        break;
+        case VK_F2:
+        {
+            if (isMainMenu) {
+                changeGameStatus(DEBUG_MODE);
+                InvalidateRect(hWnd, NULL, FALSE);
+            }
         }
         break;
         default:
@@ -626,6 +650,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         HFONT detailFont = CreateFont(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
             OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
             DEFAULT_PITCH | FF_SWISS, L"Arial");
+        HFONT debugFont = CreateFont(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+            DEFAULT_PITCH | FF_SWISS, L"Arial");
         HFONT oldFont;
         RECT rect;
 
@@ -667,6 +694,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             TextOut(hMemDC, startButton.left + ((startButton.right - startButton.left) / 2), startButton.top + 10, startButtonText, lstrlen(startButtonText));
             SelectObject(hMemDC, oldFont);
             SetTextAlign(hMemDC, TA_LEFT);
+
+            if (isDebugMode) {
+                oldFont = (HFONT)SelectObject(hMemDC, detailFont);
+                WCHAR d_mode[20] = L"debug mode ON";
+                TextOut(hMemDC, map.right + 10, map.top + 10, d_mode, lstrlen(d_mode));
+                SelectObject(hMemDC, oldFont);
+            }
         }
 
         // 게임 상태가 진행 중 일때, 그리는 부분
@@ -699,6 +733,36 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             text_start += textV_gap;
 
             SelectObject(hMemDC, oldFont);
+
+            // 디버그 모드 활성화 시, 출력 되는 부분
+            if (isDebugMode) {
+                oldFont = (HFONT)SelectObject(hMemDC, debugFont);
+                int debug_text_start = text_start + 100;
+
+                // tang와 food의 개수
+                WCHAR objectCount[50];
+                wsprintfW(objectCount, L"tang의 수 : %d, food의 수 : %d", (int)tangs.size(), (int)foods.size());
+                TextOut(hMemDC, map.right + 10, map.top + debug_text_start, objectCount, lstrlenW(objectCount));
+                debug_text_start += textV_gap;
+
+                // user의 속도
+                WCHAR userSpeed[50];
+                swprintf_s(userSpeed, L"user의 속도 => vx : %.2f, vy : %.2f", user.getVx(), user.getVy());
+                TextOut(hMemDC, map.right + 10, map.top + debug_text_start, userSpeed, lstrlenW(userSpeed));
+                debug_text_start += textV_gap;
+
+                // tang들의 속도
+                WCHAR tangSpeed[50];
+                for (int i = 0; i < tangs.size(); i++) {
+                    memset(tangSpeed, 0x00, 50);
+                    swprintf_s(tangSpeed, L"tang[%d]의 속도 => vx : %.2f, vy : %.2f", i, tangs[i].getVx(), tangs[i].getVy());
+                    TextOut(hMemDC, map.right + 10, map.top + debug_text_start, tangSpeed, lstrlenW(tangSpeed));
+                    debug_text_start += textV_gap;
+                }
+                SelectObject(hMemDC, oldFont);
+            }
+
+            
 
             // user 위치
             oldBrush = (HBRUSH)SelectObject(hMemDC, userBrush);
@@ -747,6 +811,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             // 게임 상태가 게임 오버 일때, 그리는 부분
             if (isGameOver) {
+                oldFont = (HFONT)SelectObject(hMemDC, detailFont);
+                // f1키 입력 안내
+                WCHAR overText[50] = L"F1키 입력 시, 메인 메뉴 이동";
+                TextOut(hMemDC, map.right + 10, map.top + text_start, overText, lstrlen(overText));
+                text_start += textV_gap;
+
+                SelectObject(hMemDC, oldFont);
             }
         }
 
@@ -763,6 +834,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         DeleteObject(titleFont);
         DeleteObject(startFont);
         DeleteObject(detailFont);
+        DeleteObject(debugFont);
         DeleteObject(hBitmap);
         DeleteObject(hMemDC);
 
@@ -777,6 +849,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     {
         /// Mutex 해제
         CloseHandle(g_mux);
+        if (hUserThread != NULL) {
+            CloseHandle(hUserThread);
+        }
+        if (hTangThread != NULL) {
+            CloseHandle(hTangThread);
+        }
         //DestroyWindow(g_button);
         tangs.clear();
         foods.clear();
@@ -887,6 +965,11 @@ void changeGameStatus(int status) {
         isLeftPressed = false;
         isRightPressed = false;
         isUpPressed = false;
+    }
+    break;
+    case DEBUG_MODE: 
+    {
+        isDebugMode = !isDebugMode;
     }
     break;
     default:

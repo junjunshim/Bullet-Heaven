@@ -23,3 +23,4 @@
 #define GAME_STOP 3
 #define GAME_OVER 4
 #define INIT_USER_ARROW_KEY 10
+#define DEBUG_MODE 11

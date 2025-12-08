@@ -72,9 +72,11 @@ public:
 	// moveForce setter, getter
 	void setMoveForce(float);
 	float getMoveForce();
-	// vx, vy setter
+	// vx, vy setter, getter
 	void setVx(float);
 	void SetVy(float);
+	float getVx();
+	float getVy();
 	// 마우스 처리용
 	bool getIsHold();
 	void TrueIsHold();

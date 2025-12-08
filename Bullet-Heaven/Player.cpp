@@ -190,6 +190,14 @@ void Player::SetVy(float vy) {
 	this->vy = vy;
 }
 
+// getter vx, vy
+float Player::getVx() {
+	return this->vx;
+}
+float Player::getVy() {
+	return this->vy;
+}
+
 // 마우스 처리용
 bool Player::getIsHold() {
 	return this->isHold;
