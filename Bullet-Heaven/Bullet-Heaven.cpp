@@ -173,12 +173,216 @@ void normalization(float*, float*); // 방향 벡터 정규화 함수
 void initGame(); // 게임 시작 시, 초기화 담당 함수
 void changeGameStatus(int); // 게임 상태 변경 함수
 
+// 상호배제 진행 => mutex 사용
+// user로직과 tangs의 로직 각각 스레드로 변경
+// + WM_PAINT에서도 상호배제 필요
+
+HANDLE g_mux;
+
+// user스레드
+DWORD WINAPI UserLogic(LPVOID param) {
+    HWND hWnd = (HWND)param;
+    while (isGamePlaying) {
+        Sleep(16);
+        WaitForSingleObject(g_mux, INFINITE);
+        // 임계영역 시작!!!!!!!
+
+        // 유저 위치 이동 로직
+        float m_x = 0.0f;
+        float m_y = 0.0f;
+        if (isLeftPressed) {
+            m_x -= 1;
+        }
+        if (isRightPressed) {
+            m_x += 1;
+        }
+        if (isUpPressed) {
+            m_y -= 1;
+        }
+        if (isDownPressed) {
+            m_y += 1;
+        }
+
+        // 대각선 이동 시, 속도 빨라지는 것 방지(정규화)
+        normalization(&m_x, &m_y);
+
+        user.applyForce(m_x * USER_FORCE, m_y * USER_FORCE);
+
+        user.update(map);
+
+        // user 와 food의 충돌 확인 및 food 위치 재배치
+            // score 증가 및 tang의 속도 증가(score에 의해 변동)
+            // score 일정치 이상 증가 시, tang 증가 로직
+        RECT ret_food;
+        for (int i = 0; i < foods.size(); i++) {
+            if (IntersectRect(&ret_food, user.getObj(), foods[i].getObj())) {
+                score += point;
+                RECT re;
+                do {
+                    foods[i].setObj(rand() % (map.right - foods[i].getWidth() - map.left) + map.left, rand() % (map.bottom - foods[i].getHeight() - map.top) + map.top);
+                } while (IntersectRect(&re, user.getObj(), foods[i].getObj()));
+                // 100점마다 tang 증가 로직 + food 증가 로직
+                if (score % 100 == 0) {
+                    // tang 증가
+                    Player newTang;
+                    RECT result;
+                    /*
+                        랜덤 위치 생성 로직
+                        1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
+                        2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
+                        3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
+                    */
+                    do {
+                        newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
+                    } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
+                    tangs.push_back(newTang);
+
+                    // food 증가
+                    Player newFood;
+                    newFood.setWidth(30);
+                    newFood.setHeight(30);
+                    do {
+                        newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
+                    } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
+                    foods.push_back(newFood);
+                }
+            }
+        }
+
+        // 임계영역 해제!!!!!!!
+        ReleaseMutex(g_mux);
+    }
+    ExitThread(0);
+    return 0;
+}
+
+// tangs 스레드
+DWORD WINAPI TangsLogic(LPVOID param) {
+    HWND hWnd = (HWND)param;
+    while (isGamePlaying) {
+        Sleep(16);
+        WaitForSingleObject(g_mux, INFINITE);
+        // 임계영역 시작!!!!!!!
+
+        // tang들 간의 충돌 검사 로직
+        for (int i = 0; i < tangs.size(); i++) {
+            // tang의 상태 확인 => 잡힌 상태면, 충돌 검사 X
+            if (tangs[i].getIsHold()) {
+                continue;
+            }
+            // tang의 충돌검사는 인덱스가 큰 tang들만 검사하여 여러 번 검사하는 것을 방지
+            for (int j = i + 1; j < tangs.size(); j++) {
+                // 비교를 할 tang가 잡힌 상태면 충돌 검사 X
+                if (tangs[j].getIsHold()) {
+                    continue;
+                }
+
+                RECT ret;
+                // tang 간의 충돌 비교(IntersectRect() 함수 사용)
+                if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
+                    // 충돌 시, 어느 방향으로 튕겨나가야 할지 계산
+                    // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★ 
+                    float dirX = tangs[j].getLeft() - tangs[i].getLeft();
+                    float dirY = tangs[j].getTop() - tangs[i].getTop();
+
+                    // 계산한 방향 벡터를 정규화
+                    normalization(&dirX, &dirY);
+
+                    // 각 tang에 가속도에 방향 벡터 값 추가 
+                    tangs[i].applyForce(-dirX * TANG_CRASH_FORCE, -dirY * TANG_CRASH_FORCE);
+                    tangs[j].applyForce(dirX * TANG_CRASH_FORCE, dirY * TANG_CRASH_FORCE);
+
+                    // tang의 물리 상태 업데이트
+                    tangs[i].update(map);
+                    tangs[j].update(map);
+                }
+            }
+        }
+
+        // tang의 user 추적 로직
+        for (int i = 0; i < tangs.size(); i++) {
+            // tang가 잡힌 상태면, X
+            if (tangs[i].getIsHold()) {
+                continue;
+            }
+
+            // tangs[i]에서 user를 향하는 방향 벡터 계산
+            // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★
+            float dirX = user.getLeft() - tangs[i].getLeft();
+            float dirY = user.getTop() - tangs[i].getTop();
+
+            // 계산한 방향 벡터를 정규화
+            normalization(&dirX, &dirY);
+
+            // tang에게 정규화된 방향으로 힘을 가함
+            int increasedTime = score / TANG_UNIT_SCORE;
+            float tangForce = TANG_DEFAULT_CHASE_FORCE + (TANG_ADDITIONAL_CHASE_FORCE * increasedTime);
+            tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
+
+            // tang의 물리 상태 업데이트
+            tangs[i].update(map);
+        }
+
+        // tang가 isHold == true일때, 마우스를 따라가도록(tang들 간의 충돌은 무시)
+        for (int i = 0; i < tangs.size(); i++) {
+            if (!tangs[i].getIsHold()) {
+                continue;
+            }
+            //tang 중앙으로 위치 보정
+            // g_x, g_y => 마우스 위치
+            // tang의 중앙 위치 값 구한 뒤, 방향 벡터 구하기
+            int center_x = tangs[i].getLeft() + tangs[i].getWidth() / 2;
+            int center_y = tangs[i].getTop() + tangs[i].getHeight() / 2;
+
+            float dirX = g_x - center_x;
+            float dirY = g_y - center_y;
+
+            // 계산한 방향 벡터를 정규화
+            normalization(&dirX, &dirY);
+
+            // tang에게 정규화된 방향으로 힘을 가함
+            tangs[i].applyForce(dirX * TANG_HOLD_FORCE, dirY * TANG_HOLD_FORCE);
+
+            // tang의 물리 상태 업데이트
+            tangs[i].update(map);
+        }
+
+        bool isCrashed = false;
+        // user와 tang들 충돌 검사 ()
+        for (int i = 0; i < tangs.size(); i++) {
+            // user 와 tang의 충돌 확인 및 타이머 해제
+            RECT ret_tang;
+            if (IntersectRect(&ret_tang, user.getObj(), tangs[i].getObj())) {
+                isCrashed = true;
+                break;
+            }
+        }
+
+        // 임계영역 해제!!!!!!!
+        ReleaseMutex(g_mux);
+
+        if (isCrashed) {
+            KillTimer(hWnd, FRAME_60FPS);
+            KillTimer(hWnd, ONE_SECOND);
+            changeGameStatus(GAME_OVER);
+            MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
+            changeGameStatus(INIT_USER_ARROW_KEY);
+            changeGameStatus(MAIN_MENU);
+            InvalidateRect(hWnd, NULL, FALSE);
+        }
+    }
+    ExitThread(0);
+    return 0;
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
     case WM_CREATE:
     {
+        // mutex 초기화
+        g_mux = CreateMutex(NULL, FALSE, L"mutex");
         // 난수 초기화
         srand(time(NULL));
         // 게임 디폴트 상태(메인 메뉴)
@@ -190,166 +394,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         switch (wParam) {
         case FRAME_60FPS:
         {
-            // 유저 위치 이동 로직
-            float m_x = 0.0f;
-            float m_y = 0.0f;
-            if (isLeftPressed) {
-                m_x -= 1;
-            }
-            if (isRightPressed) {
-                m_x += 1;
-            }
-            if (isUpPressed) {
-                m_y -= 1;
-            }
-            if (isDownPressed) {
-                m_y += 1;
-            }
-
-            // 대각선 이동 시, 속도 빨라지는 것 방지(정규화)
-            normalization(&m_x, &m_y);
-
-            user.applyForce(m_x * USER_FORCE, m_y * USER_FORCE);
-
-            user.update(map);
-
-            // tang들 간의 충돌 검사 로직
-            for (int i = 0; i < tangs.size(); i++) {
-                // tang의 상태 확인 => 잡힌 상태면, 충돌 검사 X
-                if (tangs[i].getIsHold()) {
-                    continue;
-                }
-                // tang의 충돌검사는 인덱스가 큰 tang들만 검사하여 여러 번 검사하는 것을 방지
-                for (int j = i + 1; j < tangs.size(); j++) {
-                    // 비교를 할 tang가 잡힌 상태면 충돌 검사 X
-                    if (tangs[j].getIsHold()) {
-                        continue;
-                    }
-
-                    RECT ret;
-                    // tang 간의 충돌 비교(IntersectRect() 함수 사용)
-                    if (IntersectRect(&ret, tangs[i].getObj(), tangs[j].getObj())) {
-                        // 충돌 시, 어느 방향으로 튕겨나가야 할지 계산
-                        // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★ 
-                        float dirX = tangs[j].getLeft() - tangs[i].getLeft();
-                        float dirY = tangs[j].getTop() - tangs[i].getTop();
-
-                        // 계산한 방향 벡터를 정규화
-                        normalization(&dirX, &dirY);
-
-                        // 각 tang에 가속도에 방향 벡터 값 추가 
-                        tangs[i].applyForce(-dirX * TANG_CRASH_FORCE, -dirY * TANG_CRASH_FORCE);
-                        tangs[j].applyForce(dirX * TANG_CRASH_FORCE, dirY * TANG_CRASH_FORCE);
-
-                        // tang의 물리 상태 업데이트
-                        tangs[i].update(map);
-                        tangs[j].update(map);
-                    }
-                }
-            }
-
-            // tang의 user 추적 로직
-            for (int i = 0; i < tangs.size(); i++) {
-                // tang가 잡힌 상태면, X
-                if (tangs[i].getIsHold()) {
-                    continue;
-                }
-
-                // tangs[i]에서 user를 향하는 방향 벡터 계산
-                // ex) dirX = a.left - b.left => dirX는 a가 b로 향하는 x축 방향 벡터 값★★★★
-                float dirX = user.getLeft() - tangs[i].getLeft();
-                float dirY = user.getTop() - tangs[i].getTop();
-
-                // 계산한 방향 벡터를 정규화
-                normalization(&dirX, &dirY);
-
-                // tang에게 정규화된 방향으로 힘을 가함
-                int increasedTime = score / TANG_UNIT_SCORE;
-                float tangForce = TANG_DEFAULT_CHASE_FORCE + (TANG_ADDITIONAL_CHASE_FORCE * increasedTime);
-                tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
-
-                // tang의 물리 상태 업데이트
-                tangs[i].update(map);
-            }
-
-            // tang가 isHold == true일때, 마우스를 따라가도록(tang들 간의 충돌은 무시)
-            for (int i = 0; i < tangs.size(); i++) {
-                if (!tangs[i].getIsHold()) {
-                    continue;
-                }
-                //tang 중앙으로 위치 보정
-                // g_x, g_y => 마우스 위치
-                // tang의 중앙 위치 값 구한 뒤, 방향 벡터 구하기
-                int center_x = tangs[i].getLeft() + tangs[i].getWidth() / 2;
-                int center_y = tangs[i].getTop() + tangs[i].getHeight() / 2;
-
-                float dirX = g_x - center_x;
-                float dirY = g_y - center_y;
-
-                // 계산한 방향 벡터를 정규화
-                normalization(&dirX, &dirY);
-
-                // tang에게 정규화된 방향으로 힘을 가함
-                tangs[i].applyForce(dirX * TANG_HOLD_FORCE, dirY * TANG_HOLD_FORCE);
-
-                // tang의 물리 상태 업데이트
-                tangs[i].update(map);
-            }
-
-
-            // user 와 food의 충돌 확인 및 food 위치 재배치
-            // score 증가 및 tang의 속도 증가(score에 의해 변동)
-            // score 일정치 이상 증가 시, tang 증가 로직
-            RECT ret_food;
-            for (int i = 0; i < foods.size(); i++) {
-                if (IntersectRect(&ret_food, user.getObj(), foods[i].getObj())) {
-                    score += point;
-                    RECT re;
-                    do {
-                        foods[i].setObj(rand() % (map.right - foods[i].getWidth() - map.left) + map.left, rand() % (map.bottom - foods[i].getHeight() - map.top) + map.top);
-                    } while (IntersectRect(&re, user.getObj(), foods[i].getObj()));
-                    // 100점마다 tang 증가 로직 + food 증가 로직
-                    if (score % 100 == 0) {
-                        // tang 증가
-                        Player newTang;
-                        RECT result;
-                        /*
-                            랜덤 위치 생성 로직
-                            1. rand() 함수를 통해서 램덤 위치 생성, 이때 전체 맵 크기와 tang의 넓이를 계산하여 랜덤 값 생성
-                            2. do while()를 이용하여 위치 생성 이후, 유저와 겹쳐서 생성 시, 다시 위치 생성
-                            3. 조건 만족 시, 여러 tang들을 관리하기 위한 tangs(vector)에 push_back
-                        */
-                        do {
-                            newTang.setObj(rand() % (map.right - newTang.getWidth() - map.left) + map.left, rand() % (map.bottom - newTang.getHeight() - map.top) - map.top);
-                        } while (IntersectRect(&result, user.getObj(), newTang.getObj()));
-                        tangs.push_back(newTang);
-
-                        // food 증가
-                        Player newFood;
-                        newFood.setWidth(30);
-                        newFood.setHeight(30);
-                        do {
-                            newFood.setObj(rand() % (map.right - newFood.getWidth() - map.left) + map.left, rand() % (map.bottom - newFood.getHeight() - map.top) + map.top);
-                        } while (IntersectRect(&result, user.getObj(), newFood.getObj()));
-                        foods.push_back(newFood);
-                    }
-                }
-            }
-
-            // user와 tang들 충돌 검사 ()
-            for (int i = 0; i < tangs.size(); i++) {
-                // user 와 tang의 충돌 확인 및 타이머 해제
-                RECT ret_tang;
-                if (IntersectRect(&ret_tang, user.getObj(), tangs[i].getObj())) {
-                    KillTimer(hWnd, FRAME_60FPS);
-                    KillTimer(hWnd, ONE_SECOND);
-                    changeGameStatus(GAME_OVER);
-                    MessageBox(hWnd, L"Game Over", L"Info", MB_OK);
-                    changeGameStatus(INIT_USER_ARROW_KEY);
-                    changeGameStatus(MAIN_MENU);
-                }
-            }
-
             // 모든 로직 수행 후, 화면 재구성()
             InvalidateRect(hWnd, NULL, FALSE);
         }
@@ -388,6 +432,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 // 타이머 다시 세팅
                 SetTimer(hWnd, FRAME_60FPS, 16, NULL);
                 SetTimer(hWnd, ONE_SECOND, 1000, NULL);
+                /// Mutex 스레드 생성
+                CreateThread(NULL, 0, UserLogic, hWnd, 0, NULL);
+                CreateThread(NULL, 0, TangsLogic, hWnd, 0, NULL);
             }
         }
         if (isGamePlaying) {
@@ -550,6 +597,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hWnd, &ps);
 
+        WaitForSingleObject(g_mux, INFINITE);
+        // 임계영역 시작!!!!!!!
+
         // hdc 에는 그림을 그릴 대상과 연결되어있다.
         // (설정된 값과 도구의 모음), (그려진 그림의 데이터는 가지고 있지 않는다.)
 
@@ -706,12 +756,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         DeleteObject(hBitmap);
         DeleteObject(hMemDC);
 
+        // 임계영역 해제!!!!!!!
+        ReleaseMutex(g_mux);
+
         // TODO: 여기에 hdc를 사용하는 그리기 코드를 추가합니다...
         EndPaint(hWnd, &ps);
     }
     break;
     case WM_DESTROY:
     {
+        /// Mutex 해제
+        CloseHandle(g_mux);
         //DestroyWindow(g_button);
         tangs.clear();
         foods.clear();
