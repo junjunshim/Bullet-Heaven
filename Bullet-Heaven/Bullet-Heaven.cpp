@@ -134,7 +134,7 @@ std::vector<Player> tangs;
 std::vector<Player> foods;
 
 // 전체 사용 맵
-RECT map = { 10,10,1000,800 };
+RECT map = { 10,10,1200,800 };
 
 // 게임 시작 버튼 위치
 RECT startButton = {
@@ -604,15 +604,28 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         // (설정된 값과 도구의 모음), (그려진 그림의 데이터는 가지고 있지 않는다.)
 
         // 더블 버퍼링 구현(중요)
-        // 변수 선언
+        // GDI 객체 선언
         HDC hMemDC;
         HBITMAP hBitmap;
         HBITMAP hOldBitmap;
-        HPEN myPen = 0;
+        HPEN noPen = CreatePen(PS_NULL, NULL, NULL);
         HPEN oldPen;
-        HBRUSH myBrush = 0;
+        // 브러쉬
+        HBRUSH userBrush = CreateSolidBrush(RGB(0, 0, 0));
+        HBRUSH tangBrush = CreateSolidBrush(RGB(255, 0, 0));
+        HBRUSH holdBrush = CreateSolidBrush(RGB(0, 20, 150));
+        HBRUSH foodBrush = CreateSolidBrush(RGB(0, 150, 0));
         HBRUSH oldBrush;
-        HFONT myFont = 0;
+        // 폰트
+        HFONT titleFont = CreateFont(50, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+            DEFAULT_PITCH | FF_SWISS, L"Arial");
+        HFONT startFont = CreateFont(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+            DEFAULT_PITCH | FF_SWISS, L"Arial");
+        HFONT detailFont = CreateFont(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+            OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+            DEFAULT_PITCH | FF_SWISS, L"Arial");
         HFONT oldFont;
         RECT rect;
 
@@ -636,25 +649,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         // 게임 상태에 상관없이 항상 그리는 부분
         Rectangle(hMemDC, map.left, map.top, map.right, map.bottom);
-
         // 게임 상태가 메인 메뉴 일때, 그리는 부분
         if (isMainMenu) {
             // 메인 메뉴 텍스트 => 가운데 정렬
             SetTextAlign(hMemDC, TA_CENTER);
             // 타이틀 폰트 50px
-            myFont = CreateFont(50, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                DEFAULT_PITCH | FF_SWISS, L"Arial");
-            oldFont = (HFONT)SelectObject(hMemDC, myFont);
+            oldFont = (HFONT)SelectObject(hMemDC, titleFont);
             // 게임 타이틀
             WCHAR gameMainTitle[30] = L"Bullet-Heaven";
             TextOut(hMemDC, map.left + ((map.right - map.left) / 2), map.top + 100, gameMainTitle, lstrlen(gameMainTitle));
+            SelectObject(hMemDC, oldFont);
 
             // 게임 시작 버튼 && start 텍스트
-            myFont = CreateFont(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                DEFAULT_PITCH | FF_SWISS, L"Arial");
-            SelectObject(hMemDC, myFont);
+            SelectObject(hMemDC, startFont);
             Rectangle(hMemDC, startButton.left, startButton.top, startButton.right, startButton.bottom);
             WCHAR startButtonText[10] = L"STRAT";
             TextOut(hMemDC, startButton.left + ((startButton.right - startButton.left) / 2), startButton.top + 10, startButtonText, lstrlen(startButtonText));
@@ -664,23 +671,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         // 게임 상태가 진행 중 일때, 그리는 부분
         if (isGamePlaying) {
-            int textV_gap = 10;
+            int text_start = 10;
+            int textV_gap = 30;
 
-            myFont = CreateFont(20, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-                DEFAULT_PITCH | FF_SWISS, L"Arial");
-            oldFont = (HFONT)SelectObject(hMemDC, myFont);
+            oldFont = (HFONT)SelectObject(hMemDC, detailFont);
             // 게임 타이머
             WCHAR timerText[100];
             wsprintfW(timerText, L"Time : %d", gameTime);
-            TextOut(hMemDC, map.right + 10, map.top + textV_gap, timerText, lstrlenW(timerText));
-            textV_gap += 20;
+            TextOut(hMemDC, map.right + 10, map.top + text_start, timerText, lstrlenW(timerText));
+            text_start += textV_gap;
 
             // 게임 스코어
             WCHAR scoreText[100];
             wsprintfW(scoreText, L"Score : %d", score);
-            TextOut(hMemDC, map.right + 10, map.top + textV_gap, scoreText, lstrlenW(scoreText));
-            textV_gap += 20;
+            TextOut(hMemDC, map.right + 10, map.top + text_start, scoreText, lstrlenW(scoreText));
+            text_start += textV_gap;
 
             // 대쉬
             WCHAR dashText[50];
@@ -690,58 +695,58 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             else {
                 wsprintfW(dashText, L"Dash CoolTime : %d", dashCount);
             }
-            TextOut(hMemDC, map.right + 10, map.top + textV_gap, dashText, lstrlenW(dashText));
-            textV_gap += 20;
+            TextOut(hMemDC, map.right + 10, map.top + text_start, dashText, lstrlenW(dashText));
+            text_start += textV_gap;
 
             SelectObject(hMemDC, oldFont);
 
             // user 위치
+            oldBrush = (HBRUSH)SelectObject(hMemDC, userBrush);
             Rectangle(hMemDC, user.getLeft(), user.getTop(), user.getRight(), user.getBottom());
+            SelectObject(hMemDC, oldBrush);
 
             // tangs 위치
             for (int i = 0; i < tangs.size(); i++) {
                 if (!tangs[i].getIsHold()) {
+                    oldBrush = (HBRUSH)SelectObject(hMemDC, tangBrush);
                     Ellipse(hMemDC, tangs[i].getLeft(), tangs[i].getTop(), tangs[i].getRight(), tangs[i].getBottom());
+                    SelectObject(hMemDC, oldBrush);
                 }
                 else {
-                    myBrush = CreateSolidBrush(RGB(0, 20, 150));
-                    oldBrush = (HBRUSH)SelectObject(hMemDC, myBrush);
+                    oldBrush = (HBRUSH)SelectObject(hMemDC, holdBrush);
                     Ellipse(hMemDC, tangs[i].getLeft(), tangs[i].getTop(), tangs[i].getRight(), tangs[i].getBottom());
-                    myBrush = (HBRUSH)SelectObject(hMemDC, oldBrush);
+                    SelectObject(hMemDC, oldBrush);
                 }
             }
 
             // foods 위치
+            oldBrush = (HBRUSH)SelectObject(hMemDC, foodBrush);
             for (int i = 0; i < foods.size(); i++) {
                 Ellipse(hMemDC, foods[i].getLeft(), foods[i].getTop(), foods[i].getRight(), foods[i].getBottom());
             }
-
-
+            SelectObject(hMemDC, oldBrush);
+            
             // enemy 게이지 바
             Rectangle(hMemDC, map.left, map.bottom, map.right, map.bottom + 10); // 전체 게이지 바
+
+            oldBrush = (HBRUSH)SelectObject(hMemDC, tangBrush);
+            int enemyGauge = map.left;
+            // 게이지 전체는 100, 게이지 간격 20, 20당 구간 길이 => (map.right - map.left) / 5
+            enemyGauge += (score % 100 / 20) * (map.right - map.left) / 5;
+            Rectangle(hMemDC, map.left, map.bottom, enemyGauge, map.bottom + 10);
+
+            SelectObject(hMemDC, oldBrush);
+
             // 게이지 간격
             for (int i = 1; i <= 4; i++) {
                 int gaugeGap = (map.right - map.left) / 5;
                 MoveToEx(hMemDC, map.left + gaugeGap * i, map.bottom, NULL);
                 LineTo(hMemDC, map.left + gaugeGap * i, map.bottom + 10);
             }
-            // 
-            myPen = CreatePen(PS_NULL, NULL, NULL);
-            oldPen = (HPEN)SelectObject(hMemDC, myPen);
-            myBrush = CreateSolidBrush(RGB(255, 0, 0));
-            oldBrush = (HBRUSH)SelectObject(hMemDC, myBrush);
-            int enemyGauge = map.left;
-            // 게이지 전체는 100, 게이지 간격 20, 20당 구간 길이 => (map.right - map.left) / 5
-            enemyGauge += (score % 100 / 20) * (map.right - map.left) / 5;
-            Rectangle(hMemDC, map.left, map.bottom, enemyGauge, map.bottom + 10);
-
-            SelectObject(hMemDC, oldPen);
-            SelectObject(hMemDC, oldBrush);
+            
 
             // 게임 상태가 게임 오버 일때, 그리는 부분
             if (isGameOver) {
-                WCHAR overText[50] = L"F1 입력 시, 다시 시작";
-                TextOut(hMemDC, map.right + 10, map.top + 70, overText, lstrlenW(overText));
             }
         }
 
@@ -750,9 +755,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         // 리소스 해제
         SelectObject(hMemDC, hOldBitmap);
-        DeleteObject(myPen);
-        DeleteObject(myBrush);
-        DeleteObject(myFont);
+        DeleteObject(noPen);
+        DeleteObject(userBrush);
+        DeleteObject(tangBrush);
+        DeleteObject(holdBrush);
+        DeleteObject(foodBrush);
+        DeleteObject(titleFont);
+        DeleteObject(startFont);
+        DeleteObject(detailFont);
         DeleteObject(hBitmap);
         DeleteObject(hMemDC);
 
@@ -868,7 +878,7 @@ void changeGameStatus(int status) {
     break;
     case GAME_OVER:
     {
-        isGameOver = false;
+        isGameOver = true;
     }
     break;
     case INIT_USER_ARROW_KEY:
