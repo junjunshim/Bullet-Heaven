@@ -151,7 +151,7 @@ bool isRightPressed = false;
 bool isUpPressed = false;
 bool isDownPressed = false;
 
-// 게임 타이머
+// 게임 타이머(0.1초 단위)
 int gameTime = 0;
 
 // 스코어 및 기본 점수
@@ -159,7 +159,7 @@ int score = 0;
 int point = 25;
 
 // 대쉬용 변수
-int dashCoolTime = 10;
+int dashCoolTime = 100;
 int dashCount = 0;
 
 // 마우스 위치
@@ -169,6 +169,9 @@ int g_y = 0;
 // 게임 상태 플래그 변수
 bool isMainMenu, isGamePlaying, isGameOver;
 bool isDebugMode = false;
+
+// 게임 치트 플래그 변수
+bool isGameCheat = false;
 
 // 게임 로직 공용 함수 선언
 void normalization(float*, float*); // 방향 벡터 정규화 함수
@@ -215,8 +218,8 @@ DWORD WINAPI UserLogic(LPVOID param) {
         user.update(map);
 
         // user 와 food의 충돌 확인 및 food 위치 재배치
-            // score 증가 및 tang의 속도 증가(score에 의해 변동)
-            // score 일정치 이상 증가 시, tang 증가 로직
+        // score 증가 및 tang의 속도 증가(score에 의해 변동)
+        // score 일정치 이상 증가 시, tang 증가 로직
         RECT ret_food;
         for (int i = 0; i < foods.size(); i++) {
             if (IntersectRect(&ret_food, user.getObj(), foods[i].getObj())) {
@@ -225,8 +228,8 @@ DWORD WINAPI UserLogic(LPVOID param) {
                 do {
                     foods[i].setObj(rand() % (map.right - foods[i].getWidth() - map.left) + map.left, rand() % (map.bottom - foods[i].getHeight() - map.top) + map.top);
                 } while (IntersectRect(&re, user.getObj(), foods[i].getObj()));
-                // 100점마다 tang 증가 로직, 최대 8개
-                if ((score % 100 == 0) && (tangs.size() < 8)) {
+                // 500점마다 tang 증가 로직, 최대 3개
+                if ((score % 500 == 0) && (tangs.size() < 5)) {
                     // tang 증가
                     Player newTang;
                     /*
@@ -323,8 +326,8 @@ DWORD WINAPI TangsLogic(LPVOID param) {
             int increasedTime = score / TANG_UNIT_SCORE;
             float tangForce = TANG_DEFAULT_CHASE_FORCE + (TANG_ADDITIONAL_CHASE_FORCE * increasedTime);
             // tang의 최대 속도 =>  user의 70%
-            if (tangForce > USER_FORCE * 0.6) {
-                tangForce = USER_FORCE * 0.6;
+            if (tangForce > USER_FORCE * 0.7) {
+                tangForce = USER_FORCE * 0.7;
             }
             tangs[i].applyForce(dirX * tangForce, dirY * tangForce);
 
@@ -358,14 +361,17 @@ DWORD WINAPI TangsLogic(LPVOID param) {
 
         bool isCrashed = false;
         // user와 tang들 충돌 검사 ()
-        for (int i = 0; i < tangs.size(); i++) {
-            // user 와 tang의 충돌 확인 및 타이머 해제
-            RECT ret_tang;
-            if (IntersectRect(&ret_tang, user.getObj(), tangs[i].getObj())) {
-                isCrashed = true;
-                break;
+        if (!isGameCheat) {
+            for (int i = 0; i < tangs.size(); i++) {
+                // user 와 tang의 충돌 확인 및 타이머 해제
+                RECT ret_tang;
+                if (IntersectRect(&ret_tang, user.getObj(), tangs[i].getObj())) {
+                    isCrashed = true;
+                    break;
+                }
             }
         }
+        
 
         // 임계영역 해제!!!!!!!
         ReleaseMutex(g_mux);
@@ -386,46 +392,54 @@ DWORD WINAPI TangsLogic(LPVOID param) {
 // bullet 스레드
 DWORD WINAPI BulletsLogic(LPVOID param) {
     HWND hWnd = (HWND)param;
+    // 이전 생성 시간 저장 변수
     int lastShotTime = -1;
     while (isGamePlaying && !isGameOver) {
         Sleep(16);
         WaitForSingleObject(g_mux, INFINITE);
         // 임계영역 시작!!!!!!!
+        // 생성주기 계산 => 최소치 BULLET_TIME_MIN
         int creation_time = BULLET_DEFAULT_TIME - (score / BULLET_UNIT_SCORE) * BULLET_REDUCED_TIME;
         if (creation_time < BULLET_TIME_MIN) {
             creation_time = BULLET_TIME_MIN;
         }
+        // 생성 조건(모두 만족)
+        // 1. 게임시간 0 이상, 2. 생성주기마다 생성, 3. 이전 생성시간과 같으면 X 
         if (gameTime > 0 && (gameTime % creation_time == 0) && (gameTime != lastShotTime)) {
+            // 이전 생성 시간 저장
             lastShotTime = gameTime;
 
+            // 추가할 bullet
             Player newBullet;
 
+            // bullet의 사이즈 지정
             newBullet.setWidth(BULLET_SIZE);
             newBullet.setHeight(BULLET_SIZE);
 
             // 맵 가장자리 랜덤 위치 선정
-            // 0:상, 1:하, 2:좌, 3:우
             int edge = rand() % 4;
             int startX = 0, startY = 0;
 
+            // 가장자리 위치에 맞게 위치 생성
             switch (edge) {
-            case 0: // 상 (Top)
+            case TOP:
                 startX = rand() % (map.right - map.left) + map.left;
                 startY = map.top - BULLET_SIZE;
                 break;
-            case 1: // 하 (Bottom)
+            case BOTTOM:
                 startX = rand() % (map.right - map.left) + map.left;
                 startY = map.bottom;
                 break;
-            case 2: // 좌 (Left)
+            case LEFT:
                 startX = map.left - BULLET_SIZE;
                 startY = rand() % (map.bottom - map.top) + map.top;
                 break;
-            case 3: // 우 (Right)
+            case RIGHT:
                 startX = map.right;
                 startY = rand() % (map.bottom - map.top) + map.top;
                 break;
             }
+            // 시작위치 지정
             newBullet.setObj(startX, startY);
 
             // 생성되는 순간 유저를 향해 방향 계산 (직선)
@@ -440,32 +454,35 @@ DWORD WINAPI BulletsLogic(LPVOID param) {
             bullets.push_back(newBullet);
         }
 
-        auto it = bullets.begin();
+        std::vector<Player>::iterator it = bullets.begin();
         while (it != bullets.end()) {
-
-            // constantMove가 false를 반환하면(맵 밖으로 나감) -> 삭제
-            // constantMove가 true를 반환하면(맵 안임) -> 살려둠
+            // constantMove 함수를 통해서 등속운동 및 맵 
             if (it->constantMove(map) == false) {
-                it = bullets.erase(it); // 삭제하고 다음 요소 받기
+                it = bullets.erase(it);
             }
             else {
-                ++it; // 다음 요소로 이동
+                ++it;
             }
         }
 
-        // 3. 충돌 검사 (User vs Bullets)
+        // user와 bullet의 충돌 검사
         bool isCrashed = false;
-        for (int i = 0; i < bullets.size(); i++) {
-            RECT ret;
-            if (IntersectRect(&ret, user.getObj(), bullets[i].getObj())) {
-                isCrashed = true;
-                break;
+        if (!isGameCheat) {
+            for (int i = 0; i < bullets.size(); i++) {
+                RECT ret;
+                if (IntersectRect(&ret, user.getObj(), bullets[i].getObj())) {
+                    isCrashed = true;
+                    break;
+                }
             }
         }
         // 임계영역 해제!!!!!!!
         ReleaseMutex(g_mux);
 
         if (isCrashed) {
+            if (isGameCheat) {
+                break;
+            }
             KillTimer(hWnd, FRAME_60FPS);
             KillTimer(hWnd, ONE_SECOND);
             changeGameStatus(GAME_OVER);
@@ -497,7 +514,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         switch (wParam) {
         case FRAME_60FPS:
         {
-            // 모든 로직 수행 후, 화면 재구성()
+            // 화면 재구성()
             InvalidateRect(hWnd, NULL, FALSE);
         }
         break;
@@ -506,7 +523,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if (isGamePlaying) {
                 // 타이머 증가 로직 + 대수 쿨타임 계산
                 gameTime++;
-                if (dashCount > 0) {
+                if (isGameCheat) {
+                    dashCount = 0;
+                }
+                else if (dashCount > 0) {
                     dashCount--;
                 }
             }
@@ -534,7 +554,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 changeGameStatus(GAME_PLAYING);
                 // 타이머 다시 세팅
                 SetTimer(hWnd, FRAME_60FPS, 16, NULL);
-                SetTimer(hWnd, ONE_SECOND, 1000, NULL);
+                SetTimer(hWnd, ONE_SECOND, 100, NULL);
                 /// Mutex 스레드 생성
                 if (hUserThread != NULL) {
                     CloseHandle(hUserThread);
@@ -642,6 +662,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
         case VK_F1:
         {
+            // 게임 오버 시, 메인 메뉴로 이동
             if (isGameOver) {
                 changeGameStatus(MAIN_MENU);
                 InvalidateRect(hWnd, NULL, FALSE);
@@ -650,10 +671,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
         case VK_F2:
         {
+            // 메인 메뉴에서 디버그 모드 사용
             if (isMainMenu) {
                 changeGameStatus(DEBUG_MODE);
                 InvalidateRect(hWnd, NULL, FALSE);
             }
+        }
+        break;
+        case VK_F3:
+        {
+            changeGameStatus(GAME_CHEAT);
         }
         break;
         default:
@@ -813,7 +840,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             oldFont = (HFONT)SelectObject(hMemDC, detailFont);
             // 게임 타이머
             WCHAR timerText[100];
-            wsprintfW(timerText, L"Time : %d", gameTime);
+            wsprintfW(timerText, L"Time : %d.%d", gameTime / 10, gameTime % 10);
             TextOut(hMemDC, map.right + 10, map.top + text_start, timerText, lstrlenW(timerText));
             text_start += textV_gap;
 
@@ -825,14 +852,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             // 대쉬
             WCHAR dashText[50];
-            if (dashCount == 0) {
+            if (dashCount == 0 || isGameCheat) {
                 wsprintfW(dashText, L"Dash Ready!");
             }
             else {
-                wsprintfW(dashText, L"Dash CoolTime : %d", dashCount);
+                wsprintfW(dashText, L"Dash CoolTime : %d.%d", dashCount / 10, dashCount % 10);
             }
             TextOut(hMemDC, map.right + 10, map.top + text_start, dashText, lstrlenW(dashText));
             text_start += textV_gap;
+
+            if (isGameCheat) {
+                WCHAR cheatText[20] = L"cheat on";
+                TextOut(hMemDC, map.right + 10, map.top + text_start, cheatText, lstrlenW(cheatText));
+                text_start += textV_gap;
+            }
 
             SelectObject(hMemDC, oldFont);
 
@@ -902,15 +935,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             oldBrush = (HBRUSH)SelectObject(hMemDC, tangBrush);
             int enemyGauge = map.left;
-            // 게이지 전체는 100, 게이지 간격 20, 20당 구간 길이 => (map.right - map.left) / 5
-            enemyGauge += (score % 100 / 20) * (map.right - map.left) / 5;
+            // 게이지 전체는 100, 게이지 간격 25, 25당 구간 길이 => (map.right - map.left) / 5
+            enemyGauge += (score % 100 / 25) * (map.right - map.left) / 4;
             Rectangle(hMemDC, map.left, map.bottom, enemyGauge, map.bottom + 10);
 
             SelectObject(hMemDC, oldBrush);
 
             // 게이지 간격
             for (int i = 1; i <= 4; i++) {
-                int gaugeGap = (map.right - map.left) / 5;
+                int gaugeGap = (map.right - map.left) / 4;
                 MoveToEx(hMemDC, map.left + gaugeGap * i, map.bottom, NULL);
                 LineTo(hMemDC, map.left + gaugeGap * i, map.bottom + 10);
             }
@@ -965,7 +998,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         if (hBulletThread != NULL) {
             CloseHandle(hBulletThread);
         }
-        //DestroyWindow(g_button);
         tangs.clear();
         foods.clear();
         bullets.clear();
@@ -1084,6 +1116,10 @@ void changeGameStatus(int status) {
         isDebugMode = !isDebugMode;
     }
     break;
+    case GAME_CHEAT:
+    {
+        isGameCheat = !isGameCheat;
+    }
     default:
     {
     }
